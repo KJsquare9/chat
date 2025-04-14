@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "50383153998",
+    "project_id": "chatapp-35273",
+    "storage_bucket": "chatapp-35273.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:50383153998:android:ce0c6d7c4b0381dd0f0c1f",
+        "android_client_info": {
+          "package_name": "com.example.learningdart"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCCFeXECcvWmJzlF-3LQvaaTu8w57vxDjY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

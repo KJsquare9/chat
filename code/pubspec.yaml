@@ -1,0 +1,60 @@
+name: apnagram
+description: "apnagram.in, a project by team 33"
+
+publish_to: 'none' 
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.7.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  pinput: ^5.0.1
+  path_provider: ^2.1.1
+  path: ^1.8.3
+  url_launcher: ^6.1.11
+  intl: ^0.20.2
+  cupertino_icons: ^1.0.8
+  cached_network_image: ^3.2.0
+  webview_flutter: ^4.10.0
+  image_picker: ^1.1.2
+  flutter_chat_bubble: ^2.0.2
+  file_picker: ^8.0.7
+  permission_handler: ^11.4.0
+  logger: ^2.5.0
+  http: ^1.3.0
+  shared_preferences: ^2.2.2
+  jwt_decoder: ^2.0.1
+  sendotp_flutter_sdk: ^0.0.1
+  firebase_core: ^2.27.0
+  firebase_messaging: ^14.7.19
+  flutter_local_notifications: ^17.0.0
+
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_launcher_icons: ^0.14.3
+  flutter_native_splash: ^2.4.5
+  flutter_lints: ^5.0.0
+
+flutter_icons:
+  android: true
+  ios: true
+  image_path: "assets/images/simple_logo.png"  # Path to app logo
+  adaptive_icon_foreground: "assets/images/simple_logo.png"  # Adaptive icon foreground
+  adaptive_icon_background: "#ffffff"  # Background color for adaptive icons
+
+flutter_native_splash:
+  color: "#ffffff"  # Background color for splash screen
+  image: "assets/images/simple_logo.png"  # Splash screen logo
+  android: true
+  ios: true
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/
