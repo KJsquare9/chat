@@ -4,6 +4,8 @@ import 'package:firebase_core/firebase_core.dart'; // Firebase Core
 import 'package:firebase_messaging/firebase_messaging.dart'; // Firebase Messaging
 import 'package:flutter_local_notifications/flutter_local_notifications.dart'; // Local Notifications
 import 'dart:developer'; // Import the logger
+import 'package:provider/provider.dart';
+import 'services/chat_service.dart';
 
 import 'screens/news_feed_screen.dart';
 import 'screens/login_screen.dart';
@@ -225,21 +227,24 @@ void main() async {
 class MyApp extends StatelessWidget {
   final bool isLoggedIn;
 
-  // TODO: Consider adding a GlobalKey<NavigatorState> here if needed for navigation from notification taps
-  // static final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+  // Add a GlobalKey for navigation from notifications
+  static final GlobalKey<NavigatorState> navigatorKey =
+      GlobalKey<NavigatorState>();
 
   const MyApp({super.key, required this.isLoggedIn});
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      // navigatorKey: navigatorKey, // Assign the key if you created one
-      debugShowCheckedModeBanner: false,
-      home: isLoggedIn ? const NewsFeedScreen() : const LoginScreen(),
-      // TODO: Define routes if using named routes for navigation (e.g., '/chat')
-      // routes: {
-      //   '/chat': (context) => ChatScreen(), // Example
-      // },
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => ChatService()),
+        // Add other providers here if needed
+      ],
+      child: MaterialApp(
+        navigatorKey: navigatorKey, // Add this key for notification navigation
+        debugShowCheckedModeBanner: false,
+        home: isLoggedIn ? const NewsFeedScreen() : const LoginScreen(),
+      ),
     );
   }
 }

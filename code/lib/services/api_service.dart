@@ -1,15 +1,20 @@
+// ignore_for_file: non_constant_identifier_names
+
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'dart:io';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:jwt_decoder/jwt_decoder.dart';
 import 'package:sendotp_flutter_sdk/sendotp_flutter_sdk.dart';
+import 'package:logger/logger.dart';
 import '../models/article.dart'; // Import the Article model
+import 'package:firebase_messaging/firebase_messaging.dart'; // Add this import
 
 class ApiService {
   final String baseUrl = 'http://10.0.2.2:5000';
   final String widgetId = "35637a656b6e313137373339";
   final String authToken = "444836TBOiBsWxra0H67e6305fP1";
+  final Logger logger = Logger();
   ApiService() {
     OTPWidget.initializeWidget(widgetId, authToken);
   }
@@ -346,14 +351,14 @@ class ApiService {
       );
 
       if (response.statusCode == 200) {
-        print('Product updated successfully');
+        logger.i('Product updated successfully');
         return true;
       } else {
-        print('Failed to update product: ${response.body}');
+        logger.e('Failed to update product: ${response.body}');
         return false;
       }
     } catch (e) {
-      print('Error updating product: $e');
+      logger.e('Error updating product: $e');
       return false;
     }
   }
@@ -365,11 +370,11 @@ class ApiService {
 
       String combinedSearchQuery = await getCombinedSearchQuery();
       if (combinedSearchQuery.isEmpty) {
-        print("No search terms available. Returning an empty list.");
+        logger.w("No search terms available. Returning an empty list.");
         return [];
       }
 
-      print('Combined search query___: $combinedSearchQuery');
+      logger.d('Combined search query___: $combinedSearchQuery');
 
       final response = await http.post(
         Uri.parse('$baseUrl/api/news/feed'),
@@ -399,7 +404,7 @@ class ApiService {
         );
       }
     } catch (e) {
-      print('Error fetching news data for id : $e');
+      logger.e('Error fetching news data for id : $e');
       throw Exception('Failed to fetch news data');
     }
   }
@@ -415,7 +420,7 @@ class ApiService {
         combinedQuery += topics.join(' '); // Join topics with spaces
       }
 
-      print('Combined search query: $combinedQuery'); // Debugging line
+      logger.d('Combined search query: $combinedQuery');
 
       if (pincode != null && pincode.isNotEmpty) {
         if (combinedQuery.isNotEmpty) {
@@ -424,13 +429,11 @@ class ApiService {
         combinedQuery += pincode;
       }
 
-      print(
-        'Combined search query after adding pincode: $combinedQuery',
-      ); // Debugging line
+      logger.d('Combined search query after adding pincode: $combinedQuery');
 
       return combinedQuery.trim(); // Trim any leading/trailing spaces
     } catch (e) {
-      print('Error creating combined search query: $e');
+      logger.e('Error creating combined search query: $e');
       return ''; // Return an empty string in case of an error
     }
   }
@@ -467,7 +470,7 @@ class ApiService {
         throw Exception('Failed to fetch topics of interest');
       }
     } catch (e) {
-      print('Error fetching topics of interest for id $sellerIdtemp: $e');
+      logger.e('Error fetching topics of interest for id $sellerIdtemp: $e');
       throw Exception('Failed to fetch topics of interest');
     }
   }
@@ -500,7 +503,7 @@ class ApiService {
         throw Exception('Failed to fetch user data');
       }
     } catch (e) {
-      print('Error fetching pincode: $e');
+      logger.e('Error fetching pincode: $e');
       throw Exception('Failed to fetch pincode: $e');
     }
   }
@@ -541,7 +544,7 @@ class ApiService {
         throw Exception('Failed to fetch user details');
       }
     } catch (e) {
-      print('Error fetching user details: $e');
+      logger.e('Error fetching user details: $e');
       throw Exception('Failed to fetch user details');
     }
   }
@@ -588,7 +591,7 @@ class ApiService {
     required String constituency,
     required String question,
   }) async {
-    print("It came!");
+    logger.i("It came!");
     String? token = await getToken();
     if (token == null) throw Exception('User not logged in');
     // Send the query
@@ -618,6 +621,9 @@ class ApiService {
     String? fcmToken,
   ]) async {
     try {
+      String? token = await getToken();
+      if (token == null) throw Exception('User not logged in');
+
       final response = await http.put(
         Uri.parse('$baseUrl/users/$userId/notifications'),
         headers: {
@@ -633,22 +639,21 @@ class ApiService {
         throw Exception('Failed to update notification preferences');
       }
     } catch (e) {
-      print('Error updating notification preferences: $e');
+      logger.e('Error updating notification preferences: $e');
       return false;
     }
   }
 
   Future<bool> updateFCMToken(String token) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final userId = prefs.getString('userId');
+      String? userId = await getSellerId();
       if (userId == null) return false;
 
       final response = await http.post(
         Uri.parse('$baseUrl/chat/updateFCMToken'),
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer ${prefs.getString('token')}',
+          'Authorization': 'Bearer ${await getToken()}',
         },
         body: jsonEncode({'userId': userId, 'fcmToken': token}),
       );
@@ -656,11 +661,163 @@ class ApiService {
       if (response.statusCode == 200) {
         return true;
       } else {
-        print('Failed to update FCM token: ${response.statusCode}');
+        logger.e('Failed to update FCM token: ${response.statusCode}');
         return false;
       }
     } catch (e) {
-      print('Error updating FCM token: $e');
+      logger.e('Error updating FCM token: $e');
+      return false;
+    }
+  }
+
+  // Request notification permissions
+  Future<bool> requestNotificationPermission() async {
+    try {
+      FirebaseMessaging messaging = FirebaseMessaging.instance;
+      NotificationSettings settings = await messaging.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+
+      String? userId = await getSellerId();
+      if (userId == null) {
+        logger.e('Failed to get user ID for notification permission');
+        return false;
+      }
+
+      bool permissionGranted =
+          settings.authorizationStatus == AuthorizationStatus.authorized;
+
+      if (permissionGranted) {
+        logger.i('User granted notification permission');
+        await _getAndSendFCMToken(userId);
+      } else {
+        logger.w('User declined or has not accepted notification permission');
+      }
+
+      // Update the user's preference in the database
+      await updateNotificationPreference(userId, permissionGranted);
+
+      return permissionGranted;
+    } catch (e) {
+      logger.e('Error requesting notification permission: $e');
+      return false;
+    }
+  }
+
+  // Get FCM token and send to backend
+  Future<void> _getAndSendFCMToken(String userId) async {
+    try {
+      String? token = await FirebaseMessaging.instance.getToken();
+      logger.i('FCM Token: $token');
+
+      if (token != null) {
+        // Send token to backend
+        bool updated = await updateFCMToken(token);
+        if (updated) {
+          logger.i('FCM token updated successfully');
+        } else {
+          logger.e('Failed to update FCM token');
+        }
+
+        // Also update in notification preferences
+        await updateNotificationPreference(userId, true, token);
+      }
+
+      // Listen for token refreshes
+      FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
+        logger.i('FCM Token refreshed: $newToken');
+        await updateFCMToken(newToken);
+        await updateNotificationPreference(userId, true, newToken);
+      });
+    } catch (e) {
+      logger.e('Error in _getAndSendFCMToken: $e');
+    }
+  }
+
+  // Check if notification permission is already granted
+  Future<bool> checkNotificationPermission() async {
+    try {
+      NotificationSettings settings =
+          await FirebaseMessaging.instance.getNotificationSettings();
+      return settings.authorizationStatus == AuthorizationStatus.authorized;
+    } catch (e) {
+      logger.e('Error checking notification permission: $e');
+      return false;
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getMessages(
+    String conversationId, {
+    int page = 1,
+    int limit = 20,
+  }) async {
+    try {
+      String? token = await getToken();
+      if (token == null) throw Exception('User not logged in');
+
+      final response = await http.get(
+        Uri.parse(
+          '$baseUrl/chat/conversations/$conversationId/messages?page=$page&limit=$limit',
+        ),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['success'] == true && data['messages'] != null) {
+          return List<Map<String, dynamic>>.from(data['messages']);
+        } else {
+          return [];
+        }
+      } else {
+        logger.e('Failed to fetch messages: ${response.statusCode}');
+        throw Exception('Failed to fetch messages');
+      }
+    } catch (e) {
+      logger.e('Error fetching messages: $e');
+      throw Exception('Error fetching messages');
+    }
+  }
+
+  Future<bool> sendMessage({
+    required String conversationId,
+    required String receiverId,
+    required String text,
+    String type = 'text',
+    String? mediaUrl,
+  }) async {
+    try {
+      String? token = await getToken();
+      if (token == null) throw Exception('User not logged in');
+
+      final response = await http.post(
+        Uri.parse('$baseUrl/chat/messages'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'conversationId': conversationId,
+          'receiverId': receiverId,
+          'text': text,
+          'type': type,
+          'mediaUrl': mediaUrl,
+        }),
+      );
+
+      if (response.statusCode == 201) {
+        return true;
+      } else {
+        logger.e('Failed to send message: ${response.statusCode}');
+        return false;
+      }
+    } catch (e) {
+      logger.e('Error sending message: $e');
       return false;
     }
   }

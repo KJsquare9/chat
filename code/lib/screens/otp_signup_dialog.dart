@@ -15,7 +15,7 @@ class OTPDialog extends StatefulWidget {
   final List<String> topics;
   final Widget nextPage;
 
-  OTPDialog({
+  const OTPDialog({
     super.key,
     required this.phoneNumber,
     required this.fullName,
@@ -100,7 +100,8 @@ class _OTPDialogState extends State<OTPDialog> {
         if (!mounted) return;
 
         // Request notification permissions after successful registration
-        await requestNotificationPermissions();
+        // Changed to use the ApiService method directly
+        await apiService.requestNotificationPermission();
 
         Navigator.pop(context);
         Navigator.pushReplacement(
