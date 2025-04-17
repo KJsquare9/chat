@@ -1,15 +1,16 @@
 import express from "express";
 import { getUserContacts, searchUsers, addContact, updateFCMToken, getUserConversations, getMessages, findOrCreateSellerConversation } from "../controllers/chat.controller.js";
-import { authenticate } from "../middleware/authMiddleware.js"; // Assuming you have authentication middleware
+import { authenticate } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-router.get("/chat/contacts", getUserContacts); // Get user contacts
-router.get("/chat/search", searchUsers);
-router.post("/chat/addContact", addContact);
-router.post("/chat/updateFCMToken", updateFCMToken);
-router.get("/chat/conversations", getUserConversations);
-router.get("/chat/conversations/:conversationId/messages", getMessages);
-router.post("/chat/product-seller/:productId/conversation", authenticate, findOrCreateSellerConversation); // New endpoint
+// Remove the "/chat" prefix from all routes since they're mounted at "/api/chat"
+router.get("/contacts", getUserContacts);
+router.get("/search", searchUsers);
+router.post("/addContact", addContact);
+router.post("/updateFCMToken", updateFCMToken);
+router.get("/conversations", authenticate, getUserConversations);
+router.get("/conversations/:conversationId/messages", getMessages);
+router.post("/product-seller/:productId/conversation", authenticate, findOrCreateSellerConversation);
 
 export default router;

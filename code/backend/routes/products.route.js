@@ -10,11 +10,11 @@ import {
 } from "../controllers/products.controller.js";
 
 const router=express.Router();
-router.post("/products", authenticate, createProduct);
-router.get("/products", allProductDetails);
-router.get("/products/:id",ProductsofSeller);
-router.put("/products/:id", authenticate, updateProduct);
-router.delete("/products/:id", authenticate, deleteProduct);
-router.post("/products/:id/flag", authenticate, flagProduct);
+router.post("/", authenticate, createProduct);
+router.get("/", allProductDetails);
+router.get("/:id",ProductsofSeller);
+router.put("/:id", authenticate, updateProduct);
+router.delete("/:id", authenticate, deleteProduct);
+router.post("/:id/flag", authenticate, flagProduct);
 
 export default router;

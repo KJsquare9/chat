@@ -77,27 +77,46 @@ export const createProduct = async (req, res) => {
 
 
 export const allProductDetails = async (req, res) => {
+    console.log("[DEBUG] allProductDetails function called");
     try {
-        const products = await Product.find({}); 
+        console.log("[DEBUG] Attempting to fetch all products");
+        const products = await Product.find({});
+        console.log(`[DEBUG] Products fetched: ${products.length}`);
+        
+        console.log("[DEBUG] Starting to format products");
         const formattedProducts = products.map((product) => {
+            console.log(`[DEBUG] Processing product: ${product._id}`);
             if (product.images && product.images.length > 0) {
-                product.images = product.images.map((img) => {
+                console.log(`[DEBUG] Product ${product._id} has ${product.images.length} images`);
+                product.images = product.images.map((img, index) => {
+                    console.log(`[DEBUG] Processing image ${index} for product ${product._id}`);
                     if (img.data) {
-                        return `data:image/jpeg;base64,${img.data.toString('base64')}`;
+                        console.log(`[DEBUG] Converting image ${index} to base64`);
+                        try {
+                            return `data:image/jpeg;base64,${img.data.toString('base64')}`;
+                        } catch (imgError) {
+                            console.error(`[DEBUG] Error converting image ${index} to base64:`, imgError);
+                            return null;
+                        }
                     }
+                    console.log(`[DEBUG] Image ${index} has no data`);
                     return null;
                 });
+            } else {
+                console.log(`[DEBUG] Product ${product._id} has no images`);
             }
             return product;
         });
 
+        console.log("[DEBUG] Products formatted successfully, sending response");
         res.status(200).json({
             success: true,
             message: "Products Details Fetched Successfully",
             data: formattedProducts,
         });
     } catch (error) {
-        console.error("Error fetching products:", error);
+        console.error("[DEBUG] Error in allProductDetails:", error);
+        console.error("[DEBUG] Error stack:", error.stack);
         res.status(500).json({ message: "Internal Server Error" });
     }
 };

@@ -41,30 +41,43 @@ class MarketplacePageState extends State<MarketplacePage> {
   }
 
   Future<void> _fetchProducts() async {
+    if (!mounted) return;
+    
+    setState(() {
+      isLoading = true;
+      errorMessage = null;
+    });
+    
     try {
       final apiService = ApiService();
       final userPincode = await apiService.getPinCode();
       final fetchedProducts = await apiService.getProducts();
 
-      final matchedProducts =
-          fetchedProducts.where((product) {
-            return product['pincode'].toString() == userPincode.toString();
-          }).toList();
+      if (!mounted) return;
 
-      if (mounted) {
-        setState(() {
-          products = matchedProducts;
-          filteredProducts = matchedProducts;
-          isLoading = false;
-        });
+      List<Map<String, dynamic>> matchedProducts = [];
+      
+      if (userPincode != null) {
+        matchedProducts = fetchedProducts.where((product) {
+          return product['pincode']?.toString() == userPincode.toString();
+        }).toList();
+      } else {
+        // If no pincode, show all products
+        matchedProducts = fetchedProducts;
       }
+
+      setState(() {
+        products = matchedProducts;
+        filteredProducts = matchedProducts;
+        isLoading = false;
+      });
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          errorMessage = 'Failed to load products: ${e.toString()}';
-          isLoading = false;
-        });
-      }
+      if (!mounted) return;
+      
+      setState(() {
+        errorMessage = 'Failed to load products: ${e.toString()}';
+        isLoading = false;
+      });
     }
   }
 
@@ -76,12 +89,12 @@ class MarketplacePageState extends State<MarketplacePage> {
           products.where((product) {
             bool matchesSearch =
                 query.isEmpty ||
-                (product['name']?.toString()?.toLowerCase()?.contains(query) ??
+                (product['name']?.toString().toLowerCase().contains(query) ??
                     false);
             bool matchesCategory =
                 selectedCategory == null ||
                 selectedCategory == categories.length - 1 ||
-                (product['category']?.toString()?.toLowerCase() ==
+                (product['category']?.toString().toLowerCase() ==
                     categories[selectedCategory!]['label']
                         .toString()
                         .toLowerCase());
@@ -358,7 +371,7 @@ class MarketplacePageState extends State<MarketplacePage> {
                                                   ? Image.memory(
                                                     Uint8List.fromList(
                                                       List<int>.from(
-                                                        product['images'][0]['data']['data'],
+                                                        product['images'][0]['data']['data'] ?? [],
                                                       ),
                                                     ),
                                                     width: double.infinity,

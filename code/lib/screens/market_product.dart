@@ -327,22 +327,49 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> {
   }
 
   Future<void> _contactSeller(BuildContext context) async {
+    // Store BuildContext-dependent objects before async operations
+    final navigator = Navigator.of(context);
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+
     try {
-      // Show loading indicator
+      // First check if user is logged in
+      final apiService = ApiService();
+      final isLoggedIn = await apiService.isLoggedIn();
+
+      if (!mounted) return;
+
+      if (!isLoggedIn) {
+        _showErrorSnackbar(
+          scaffoldMessenger,
+          "Please log in to contact the seller",
+        );
+        return;
+      }
+
+      // Verify we have a valid token before proceeding
+      final token = await apiService.getToken();
+      if (token == null) {
+        _showErrorSnackbar(
+          scaffoldMessenger,
+          "Authentication token not found. Please log in again.",
+        );
+        return;
+      }
+
+      // Show loading indicator before any async operation
       showDialog(
         context: context,
         barrierDismissible: false,
-        builder: (context) => const Center(child: CircularProgressIndicator()),
+        builder:
+            (dialogContext) => const Center(child: CircularProgressIndicator()),
       );
 
-      final apiService = ApiService();
       final productId = widget.product['_id'];
 
+      // Now perform the async operation
       if (productId == null) {
-        if (mounted) {
-          Navigator.pop(context); // Dismiss loading dialog
-          _showErrorSnackbar(context, "Product ID is missing");
-        }
+        navigator.pop(); // Dismiss loading dialog
+        _showErrorSnackbar(scaffoldMessenger, "Product ID is missing");
         return;
       }
 
@@ -351,20 +378,20 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> {
         productId,
       );
 
-      // Dismiss loading dialog
+      // Check if still mounted after the async operation
       if (!mounted) return;
-      Navigator.pop(context);
+
+      // Dismiss loading dialog
+      navigator.pop();
 
       if (response['success'] == true && response['conversation'] != null) {
         final conversation = response['conversation'];
 
         // Navigate to the chat screen with the conversation data
-        if (!mounted) return;
-        Navigator.push(
-          context,
+        navigator.push(
           MaterialPageRoute(
             builder:
-                (context) => ChatScreen(
+                (routeContext) => ChatScreen(
                   conversationId: conversation['_id'],
                   receiverId: conversation['sellerId'],
                   receiverName:
@@ -375,23 +402,29 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> {
           ),
         );
       } else {
-        if (!mounted) return;
         _showErrorSnackbar(
-          context,
+          scaffoldMessenger,
           response['message'] ?? "Failed to start conversation",
         );
       }
     } catch (e) {
-      // Dismiss loading dialog if still showing
-      if (mounted && Navigator.canPop(context)) {
-        Navigator.pop(context);
-        _showErrorSnackbar(context, "Error: ${e.toString()}");
+      // Check if still mounted before attempting to pop or show error
+      if (mounted) {
+        // Check if we can pop (if dialog is showing)
+        if (navigator.canPop()) {
+          navigator.pop();
+        }
+        _showErrorSnackbar(scaffoldMessenger, "Error: ${e.toString()}");
       }
     }
   }
 
-  void _showErrorSnackbar(BuildContext context, String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
+  // Updated to take ScaffoldMessengerState instead of BuildContext
+  void _showErrorSnackbar(
+    ScaffoldMessengerState scaffoldMessenger,
+    String message,
+  ) {
+    scaffoldMessenger.showSnackBar(
       SnackBar(content: Text(message), backgroundColor: Colors.red),
     );
   }

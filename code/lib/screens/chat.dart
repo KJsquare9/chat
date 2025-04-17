@@ -4,36 +4,72 @@ import 'package:flutter_chat_bubble/chat_bubble.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:logger/logger.dart';
+import 'package:provider/provider.dart';
+import 'dart:async';
+import '../providers/chat_service_provider.dart';
 
 // Chat messages data model
 class Message {
   final String text;
+  final String senderId;
   final bool isSender;
-  final DateTime time;
+  final DateTime timestamp;
+  final MessageStatus? status;
 
-  Message({required this.text, required this.isSender, required this.time});
+  Message({
+    required this.text,
+    required this.senderId,
+    required this.isSender,
+    required this.timestamp,
+    this.status,
+  });
+
+  Message copyWith({
+    String? text,
+    String? senderId,
+    bool? isSender,
+    DateTime? timestamp,
+    MessageStatus? status,
+  }) {
+    return Message(
+      text: text ?? this.text,
+      senderId: senderId ?? this.senderId,
+      isSender: isSender ?? this.isSender,
+      timestamp: timestamp ?? this.timestamp,
+      status: status ?? this.status,
+    );
+  }
 }
 
-class ChatPage extends StatefulWidget {
-  final String sellerName;
+class ChatScreen extends StatefulWidget {
+  final String conversationId;
+  final String receiverId;
 
-  const ChatPage({super.key, required this.sellerName});
+  const ChatScreen({
+    super.key,
+    required this.conversationId,
+    required this.receiverId,
+  });
 
   @override
-  ChatPageState createState() => ChatPageState();
+  ChatScreenState createState() => ChatScreenState();
 }
 
-class ChatPageState extends State<ChatPage> {
+class ChatScreenState extends State<ChatScreen> {
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final Logger logger = Logger();
-
-  List<Message> messages = [];
+  bool _isTyping = false;
+  Timer? _typingTimer;
 
   @override
   void initState() {
     super.initState();
-    _generateMessages();
+
+    // Set the active conversation in the ChatServiceProvider
+    final provider = Provider.of<ChatServiceProvider>(context, listen: false);
+    provider.setActiveChat(widget.conversationId, widget.receiverId);
+
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
   }
 
@@ -47,35 +83,37 @@ class ChatPageState extends State<ChatPage> {
     }
   }
 
-  void _generateMessages() {
-    DateTime now = DateTime.now();
-    for (int i = 0; i < 5; i++) {
-      DateTime receiverTime = now.subtract(Duration(minutes: i));
-      messages.add(
-        Message(text: widget.sellerName, isSender: false, time: receiverTime),
-      );
+  void _handleTyping() {
+    final provider = Provider.of<ChatServiceProvider>(context, listen: false);
 
-      DateTime senderTime = now.subtract(
-        Duration(minutes: i + 1),
-      ); // Offset the send time slightly
-      messages.add(
-        Message(text: widget.sellerName, isSender: true, time: senderTime),
-      );
+    if (!_isTyping) {
+      _isTyping = true;
+      provider.sendTypingEvent(widget.receiverId);
     }
+
+    // Reset the timer each time the user types
+    _typingTimer?.cancel();
+    _typingTimer = Timer(const Duration(seconds: 2), () {
+      setState(() {
+        _isTyping = false;
+        provider.sendStopTypingEvent(widget.receiverId);
+      });
+    });
   }
 
-  void _sendMessage(String messageText) {
-    DateTime now = DateTime.now();
-    if (messageText.isNotEmpty) {
-      setState(() {
-        messages.add(Message(text: messageText, isSender: true, time: now));
-        _messageController.clear();
-      });
-      _scrollToBottom();
-      logger.i(
-        'Sent message: $messageText at ${DateFormat('yyyy-MM-dd HH:mm:ss').format(now)}',
-      );
-    }
+  void _sendMessage(String text) {
+    if (text.isEmpty) return;
+
+    final provider = Provider.of<ChatServiceProvider>(context, listen: false);
+
+    // Cancel any typing indicators
+    _isTyping = false;
+    _typingTimer?.cancel();
+    provider.sendStopTypingEvent(widget.receiverId);
+
+    // Send the message via the provider
+    provider.sendMessage(widget.receiverId, text);
+    _scrollToBottom();
   }
 
   Future<void> _pickFile() async {
@@ -89,6 +127,7 @@ class ChatPageState extends State<ChatPage> {
       if (result != null && result.files.isNotEmpty) {
         String fileName = result.files.first.name;
         logger.i('Picked file: $fileName');
+        // TODO: Implement file sending
       }
     } catch (e) {
       logger.e('Error picking file: $e', error: e);
@@ -101,9 +140,26 @@ class ChatPageState extends State<ChatPage> {
       appBar: AppBar(
         backgroundColor: const Color(0xFF093466),
         iconTheme: const IconThemeData(color: Colors.white),
-        title: Text(
-          widget.sellerName,
-          style: const TextStyle(color: Colors.white),
+        title: Consumer<ChatServiceProvider>(
+          builder: (context, provider, child) {
+            final isTyping = provider.typingUsers.containsKey(
+              widget.receiverId,
+            );
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Text(
+                  widget.receiverId,
+                  style: const TextStyle(color: Colors.white),
+                ),
+                if (isTyping)
+                  Text(
+                    'typing...',
+                    style: const TextStyle(fontSize: 12, color: Colors.white70),
+                  ),
+              ],
+            );
+          },
         ),
         centerTitle: true,
         elevation: 0,
@@ -111,60 +167,98 @@ class ChatPageState extends State<ChatPage> {
       body: Column(
         children: [
           Expanded(
-            child: ListView.builder(
-              controller: _scrollController,
-              itemCount: messages.length,
-              padding: const EdgeInsets.all(10),
-              itemBuilder: (context, index) {
-                final message = messages[index];
-                return Padding(
-                  padding: const EdgeInsets.symmetric(
-                    vertical: 2.0,
-                  ), // Add some vertical spacing
-                  child: Column(
-                    crossAxisAlignment:
-                        message.isSender
-                            ? CrossAxisAlignment.end
-                            : CrossAxisAlignment.start,
-                    children: [
-                      ChatBubble(
-                        clipper: ChatBubbleClipper3(
-                          type:
-                              message.isSender
-                                  ? BubbleType.sendBubble
-                                  : BubbleType.receiverBubble,
-                        ),
-                        alignment:
-                            message.isSender
-                                ? Alignment.topRight
-                                : Alignment.topLeft,
-                        margin: const EdgeInsets.only(top: 2),
-                        backGroundColor:
-                            message.isSender
-                                ? const Color(0xFFFF5002)
-                                : const Color.fromARGB(255, 112, 112, 112),
-                        child: Container(
-                          constraints: BoxConstraints(
-                            maxWidth: MediaQuery.of(context).size.width * 0.7,
+            child: Consumer<ChatServiceProvider>(
+              builder: (context, provider, child) {
+                final messages = provider.activeMessages;
+
+                if (messages.isEmpty) {
+                  return const Center(
+                    child: Text('No messages yet. Start the conversation!'),
+                  );
+                }
+
+                return ListView.builder(
+                  controller: _scrollController,
+                  itemCount: messages.length,
+                  padding: const EdgeInsets.all(10),
+                  itemBuilder: (context, index) {
+                    final message = messages[index];
+                    final isSender = message.senderId == provider.currentUserId;
+
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2.0),
+                      child: Column(
+                        crossAxisAlignment:
+                            isSender
+                                ? CrossAxisAlignment.end
+                                : CrossAxisAlignment.start,
+                        children: [
+                          ChatBubble(
+                            clipper: ChatBubbleClipper3(
+                              type:
+                                  isSender
+                                      ? BubbleType.sendBubble
+                                      : BubbleType.receiverBubble,
+                            ),
+                            alignment:
+                                isSender
+                                    ? Alignment.topRight
+                                    : Alignment.topLeft,
+                            margin: const EdgeInsets.only(top: 2),
+                            backGroundColor:
+                                isSender
+                                    ? const Color(0xFFFF5002)
+                                    : const Color.fromARGB(255, 112, 112, 112),
+                            child: Container(
+                              constraints: BoxConstraints(
+                                maxWidth:
+                                    MediaQuery.of(context).size.width * 0.7,
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Text(
+                                    message.text ?? '',
+                                    style: const TextStyle(color: Colors.white),
+                                  ),
+                                  if (isSender) ...[
+                                    const SizedBox(height: 2),
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          _getStatusIcon(
+                                            message
+                                                .status!, // Ensure `message.status` is non-null
+                                          ),
+                                          size: 12,
+                                          color: Colors.white70,
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
                           ),
-                          child: Text(
-                            message.text,
-                            style: const TextStyle(color: Colors.white),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8.0,
+                            ),
+                            child: Text(
+                              DateFormat(
+                                'yyyy-MM-dd HH:mm',
+                              ).format(message.timestamp),
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
                           ),
-                        ),
+                        ],
                       ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                        child: Text(
-                          DateFormat('yyyy-MM-dd HH:mm').format(message.time),
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: Colors.grey.shade600,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
+                    );
+                  },
                 );
               },
             ),
@@ -182,6 +276,7 @@ class ChatPageState extends State<ChatPage> {
                 Expanded(
                   child: TextField(
                     controller: _messageController,
+                    onChanged: (_) => _handleTyping(),
                     decoration: const InputDecoration(
                       hintText: 'Type your message...',
                       border: InputBorder.none,
@@ -190,9 +285,7 @@ class ChatPageState extends State<ChatPage> {
                 ),
                 IconButton(
                   icon: const Icon(Icons.send),
-                  onPressed: () {
-                    _sendMessage(_messageController.text);
-                  },
+                  onPressed: () => _sendMessage(_messageController.text),
                   color: const Color(0xFFFF5002),
                 ),
               ],
@@ -204,10 +297,33 @@ class ChatPageState extends State<ChatPage> {
     );
   }
 
+  IconData _getStatusIcon(MessageStatus status) {
+    switch (status) {
+      case MessageStatus.sending:
+        return Icons.access_time;
+      case MessageStatus.sent:
+        return Icons.check;
+      case MessageStatus.delivered:
+        return Icons.done_all;
+      case MessageStatus.read:
+        return Icons.done_all; // Usually with a different color
+      case MessageStatus.failed:
+        return Icons.error_outline;
+    }
+  }
+
   @override
   void dispose() {
     _messageController.dispose();
     _scrollController.dispose();
+    _typingTimer?.cancel();
+
+    // Clear the active chat when leaving
+    if (context.mounted) {
+      final provider = Provider.of<ChatServiceProvider>(context, listen: false);
+      provider.clearActiveChat();
+    }
+
     super.dispose();
   }
 }

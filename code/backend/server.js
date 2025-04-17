@@ -96,6 +96,8 @@ app.use("/api/products", productRoutes);
 app.use("/api/askyourneta", askyournetaRoutes);
 app.use("/api/news", newsRoutes);
 app.use('/api', userRoutes);    // mount user routes under /api
+app.use('/api', chatRoutes);    // mount chat routes under /api
+app.use('/api', productRoutes); // mount product routes under /api
 
 // --- Specific News Search Route (using Python Service) ---
 const PYTHON_SERVICE_URL = process.env.PYTHON_SERVICE_URL || 'http://localhost:5001';
@@ -265,7 +267,7 @@ io.on('connection', (socket) => {
                     receiverId,
                     senderId,
                     newMessage.type === 'text' ? newMessage.text : `Sent you a ${newMessage.type}`,
-                    conversation._id.toString()
+                    conversation._id
                 );
             }
 

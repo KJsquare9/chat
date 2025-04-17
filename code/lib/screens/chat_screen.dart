@@ -39,7 +39,7 @@ class _ChatScreenState extends State<ChatScreen> {
       await chatProvider.loadCurrentUserId();
 
       // Set active chat
-      chatProvider.setActiveChat(widget.conversationId);
+      chatProvider.setActiveChat(widget.conversationId, widget.receiverId);
     });
   }
 
@@ -137,15 +137,15 @@ class _ChatScreenState extends State<ChatScreen> {
                   return const Center(child: CircularProgressIndicator());
                 }
 
-                if (chatProvider.messages.isEmpty) {
+                if (chatProvider.activeMessages.isEmpty) {
                   return const Center(child: Text('No messages yet'));
                 }
 
                 return ListView.builder(
                   reverse: true,
-                  itemCount: chatProvider.messages.length,
+                  itemCount: chatProvider.activeMessages.length,
                   itemBuilder: (context, index) {
-                    final message = chatProvider.messages[index];
+                    final message = chatProvider.activeMessages[index];
                     final isMe =
                         message.senderId ==
                         Provider.of<ChatServiceProvider>(

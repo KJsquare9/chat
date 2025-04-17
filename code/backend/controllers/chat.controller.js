@@ -161,12 +161,18 @@ const updateFCMToken = async (req, res) => {
  */
 const getUserConversations = async (req, res) => {
     try {
+        // Ensure req.user and req.user.id are defined
+        if (!req.user || !req.user.id) {
+            return res.status(401).json({ success: false, message: "Unauthorized: User not authenticated" });
+        }
+
         const userId = req.user.id;
+        console.log(`Fetching conversations for user: ${userId}`); // Debug log
 
         const conversations = await Conversation.find({ participants: userId }) // Find convos where user is a participant
             .populate({
                 path: 'participants',
-                match: { _id: { $ne: userId } }, // Exclude the current user from populated participants
+                match: { _id: { $ne: userId } }, // Ensure this does not exclude all participants
                 select: 'full_name phone_no _id' // Select fields for the *other* participant(s)
                  // Add profile picture field if needed
             })
@@ -176,13 +182,17 @@ const getUserConversations = async (req, res) => {
             })
             .sort({ updatedAt: -1 }); // Sort by the most recently updated conversation
 
+        console.log(`Conversations fetched: ${JSON.stringify(conversations, null, 2)}`); // Debug log
+
         // Filter out conversations where the 'participants' array might be empty after the populate match
         // (This shouldn't happen in 1-on-1 chats if data integrity is maintained, but good practice)
         const validConversations = conversations.filter(convo => convo.participants.length > 0);
+        console.log(`Valid conversations after filtering: ${validConversations.length}`); // Debug log
 
         res.status(200).json({ success: true, conversations: validConversations });
 
     } catch (error) {
+        console.error("Error fetching conversations:", error); // Debug log
         handleError(res, error, "Error fetching conversations");
     }
 };
@@ -195,6 +205,13 @@ const getUserConversations = async (req, res) => {
  */
 const getMessages = async (req, res) => {
     const { conversationId } = req.params;
+
+    // Ensure req.user is defined
+    if (!req.user || !req.user.id) {
+        console.error("Error: req.user is undefined or missing 'id'");
+        return res.status(401).json({ success: false, message: "Unauthorized: User not authenticated" });
+    }
+
     const userId = req.user.id;
 
     // Basic pagination setup
@@ -236,6 +253,7 @@ const getMessages = async (req, res) => {
         });
 
     } catch (error) {
+        console.error("Error fetching messages:", error);
         handleError(res, error, "Error fetching messages");
     }
 };

@@ -270,10 +270,12 @@ class ApiService {
 
         return filteredProducts;
       } else {
-        throw Exception('Failed to fetch products');
+        throw Exception(
+          'Failed to fetch the products - ${response.statusCode}',
+        );
       }
     } catch (e) {
-      throw Exception('Failed to fetch products');
+      throw Exception('Failed to fetch products - $e');
     }
   }
 
@@ -800,7 +802,7 @@ class ApiService {
 
       final response = await http.get(
         Uri.parse(
-          '$baseUrl/chat/conversations/$conversationId/messages?page=$page&limit=$limit',
+          '$baseUrl/api/conversations/$conversationId/messages?page=$page&limit=$limit',
         ),
         headers: {
           'Authorization': 'Bearer $token',
@@ -837,7 +839,7 @@ class ApiService {
       if (token == null) throw Exception('User not logged in');
 
       final response = await http.post(
-        Uri.parse('$baseUrl/chat/messages'),
+        Uri.parse('$baseUrl/api/messages'),
         headers: {
           'Authorization': 'Bearer $token',
           'Content-Type': 'application/json',
@@ -868,14 +870,21 @@ class ApiService {
     String productId,
   ) async {
     try {
-      final token = await _getAuthToken();
+      final token = await getToken();
+      if (token == null) {
+        return {'success': false, 'message': 'User not logged in'};
+      }
+
+      // Adding debugging information
+      print('Making API call to create seller conversation...');
       final response = await http.post(
-        Uri.parse('$baseUrl/api/chat/product-seller/$productId/conversation'),
+        Uri.parse('$baseUrl/api/product-seller/$productId/conversation'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
         },
       );
+      print('Response status: ${response.statusCode}');
 
       final responseData = json.decode(response.body);
 
@@ -887,14 +896,43 @@ class ApiService {
         );
       }
     } catch (e) {
+      print('Error in findOrCreateSellerConversation: $e');
       return {'success': false, 'message': e.toString()};
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> fetchConversations() async {
+    try {
+      String? token = await getToken(); // Retrieve the token
+      if (token == null) throw Exception('User not logged in');
+
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/conversations'),
+        headers: {
+          'Authorization': 'Bearer $token', // Include the token in the header
+          'Content-Type': 'application/json',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return List<Map<String, dynamic>>.from(data['conversations']);
+      } else {
+        throw Exception(
+          'Failed to fetch conversations: ${response.statusCode}',
+        );
+      }
+    } catch (e) {
+      throw Exception('Error fetching conversations: $e');
     }
   }
 
   // Helper method to get the auth token
   Future<String> _getAuthToken() async {
     final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('auth_token');
+    final token = prefs.getString(
+      'token',
+    ); // Changed from 'auth_token' to 'token'
     if (token == null) {
       throw Exception('Authentication token not found');
     }
