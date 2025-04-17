@@ -28,26 +28,25 @@ export const checkUserExists = async (req, res) => {
 
 export const createUser = async (req, res) => {
     console.log(request);
-    const { full_name, phone_no, pincode, village_name,topic_of_interests,district } = req.body;
+    const { full_name, phone_no, pincode, village_name, topic_of_interests, district } = req.body;
 
-    if (!full_name || !phone_no || !pincode || !village_name ||!district) {
+    if (!full_name || !phone_no || !pincode || !village_name || !district) {
         return res.status(400).json({ success: false, message: "All fields are required" });
     }
 
     try {
-        
-        const newUser = new User({ full_name, phone_no, pincode, village_name,topic_of_interests,district });
+        const newUser = new User({ full_name, phone_no, pincode, village_name, topic_of_interests, district });
         await newUser.save();
         const token = jwt.sign({ id: newUser._id }, process.env.JWT_SECRET);
         res.status(201).json({
             success: true,
             token,
             user: {
-              id: newUser._id,
-              name: newUser.full_name,
-              phone_no: newUser.phone_no,
+                id: newUser._id,
+                name: newUser.full_name,
+                phone_no: newUser.phone_no,
             },
-          });
+        });
     } catch (error) {
         console.error("Error creating user:", error);
         res.status(500).json({ success: false, message: "Server Error" });
@@ -60,12 +59,11 @@ export const loginUser = async (req, res) => {
     if (!phone_no) {
         return res.status(400).json({ success: false, message: "Phone number is Required" });
     }
-    try 
-    {
+    try {
         let user = await User.findOne({ phone_no });
         const token = jwt.sign(
             { id: user._id },
-            process.env.JWT_SECRET 
+            process.env.JWT_SECRET
         );
 
         res.status(200).json({
@@ -81,10 +79,9 @@ export const loginUser = async (req, res) => {
     }
 };
 
-
 export const updateUser = async (req, res) => {
     const { id } = req.params;
-    const { phone_no, ...user } = req.body; 
+    const { phone_no, ...user } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
         return res.status(404).json({ success: false, message: "User Not Found" });
@@ -107,7 +104,7 @@ export const updateUser = async (req, res) => {
         }
         const updatedUser = await User.findByIdAndUpdate(
             id,
-            { ...user, phone_no }, 
+            { ...user, phone_no },
             { new: true }
         );
 
@@ -137,9 +134,10 @@ export const userProfile = async (req, res) => {
         res.status(500).json({ success: false, message: "Server Error" });
     }
 };
+
 export const getUserPincode = async (req, res) => {
-    const { id } = req.params; 
- if (!mongoose.Types.ObjectId.isValid(id)) {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
         return res.status(400).json({ success: false, message: "Invalid user ID" });
     }
     try {
@@ -153,15 +151,13 @@ export const getUserPincode = async (req, res) => {
             message: "User pincode fetched successfully",
             pincode: pincode,
         });
-    } 
-    catch (error) 
-    {
-            console.error("Error fetching user pincode:", error);
+    }
+    catch (error) {
+        console.error("Error fetching user pincode:", error);
         res.status(500).json({ success: false, message: "Internal Server Error" });
     }
 
 };
-
 
 export const getCombinedUserData = async (req, res) => {
     const { id } = req.params; // User ID from the request parameters
@@ -187,6 +183,7 @@ export const getCombinedUserData = async (req, res) => {
         res.status(500).json({ success: false, message: "Internal Server Error" });
     }
 };
+
 export const getUser_PhoneNumber = async (req, res) => {
     const { id } = req.params;
 
@@ -195,7 +192,7 @@ export const getUser_PhoneNumber = async (req, res) => {
     }
 
     try {
-        const user = await User.findById(id).select('phone_no'); 
+        const user = await User.findById(id).select('phone_no');
         if (!user) {
             return res.status(404).json({ success: false, message: "User  not found" });
         }
@@ -222,14 +219,14 @@ export const updateNotificationPreference = async (req, res) => {
     try {
         // Create an update object
         const updateData = { allow_notifications };
-        
+
         // Only add fcmToken to the update if it exists
         if (fcmToken) {
             updateData.fcmToken = fcmToken;
         }
 
         const user = await User.findByIdAndUpdate(
-            id, 
+            id,
             updateData,
             { new: true }
         );
@@ -245,5 +242,34 @@ export const updateNotificationPreference = async (req, res) => {
     } catch (error) {
         console.error("Error updating notification preferences:", error);
         res.status(500).json({ success: false, message: "Internal Server Error" });
+    }
+};
+
+export const updateFCMToken = async (req, res) => {
+    const { fcmToken } = req.body;
+    const userId = req.user.id; // Assuming this comes from auth middleware
+
+    if (!fcmToken) {
+        return res.status(400).json({ success: false, message: "FCM token is required" });
+    }
+
+    try {
+        const user = await User.findByIdAndUpdate(
+            userId,
+            { fcmToken },
+            { new: true }
+        );
+
+        if (!user) {
+            return res.status(404).json({ success: false, message: "User not found" });
+        }
+
+        res.status(200).json({
+            success: true,
+            message: "FCM token updated successfully"
+        });
+    } catch (error) {
+        console.error("Error updating FCM token:", error);
+        res.status(500).json({ success: false, message: "Server Error" });
     }
 };

@@ -196,26 +196,45 @@ io.on('connection', (socket) => {
 
     // Handle Send Message
     socket.on('sendMessage', async (data) => {
-        // **TODO: Add robust validation here using Joi, Zod, or manual checks**
-        // Example basic checks:
-        if (!data || typeof data !== 'object') return socket.emit('sendMessageError', { error: 'Invalid data format.' });
+        // Robust validation
+        if (!data || typeof data !== 'object') {
+            return socket.emit('sendMessageError', { 
+                tempId: data?.tempId, 
+                error: 'Invalid data format.' 
+            });
+        }
 
         const { receiverId, text, type = 'text', mediaUrl = null, tempId = null } = data;
         const senderId = socket.userId;
 
+        // Validate required fields
         if (!receiverId || !mongoose.Types.ObjectId.isValid(receiverId)) {
-            return socket.emit('sendMessageError', { tempId, error: 'Invalid receiver ID.' });
+            return socket.emit('sendMessageError', { 
+                tempId, 
+                error: 'Invalid receiver ID.' 
+            });
         }
+
         if (type === 'text' && (!text || typeof text !== 'string' || text.trim().length === 0)) {
-             return socket.emit('sendMessageError', { tempId, error: 'Text message cannot be empty.' });
+            return socket.emit('sendMessageError', { 
+                tempId, 
+                error: 'Text message cannot be empty.' 
+            });
         }
-         if (['image', 'video', 'file'].includes(type) && (!mediaUrl || typeof mediaUrl !== 'string')) {
-             return socket.emit('sendMessageError', { tempId, error: 'Media URL required for this type.' });
+
+        if (['image', 'video', 'file'].includes(type) && (!mediaUrl || typeof mediaUrl !== 'string')) {
+            return socket.emit('sendMessageError', { 
+                tempId, 
+                error: 'Media URL required for this message type.' 
+            });
         }
+
         if (senderId === receiverId) {
-            return socket.emit('sendMessageError', { tempId, error: 'Cannot send messages to yourself.' });
+            return socket.emit('sendMessageError', { 
+                tempId, 
+                error: 'Cannot send messages to yourself.' 
+            });
         }
-        // Add length limits for text if needed
 
         try {
             const participants = [senderId, receiverId].sort();
@@ -268,7 +287,10 @@ io.on('connection', (socket) => {
 
         } catch (error) {
             console.error(`Error handling sendMessage from ${senderId} to ${receiverId}:`, error);
-            socket.emit('sendMessageError', { tempId: tempId, error: 'Server failed to send message.' });
+            socket.emit('sendMessageError', { 
+                tempId, 
+                error: 'Server failed to send message.' 
+            });
         }
     });
 
@@ -347,7 +369,6 @@ io.on('connection', (socket) => {
 
 }); // End io.on('connection')
 
-
 // --- Push Notification Function ---
 async function sendPushNotification(receiverId, senderId, messageText, conversationId) {
     if (!admin.apps.length) {
@@ -383,7 +404,6 @@ async function sendPushNotification(receiverId, senderId, messageText, conversat
     }
 }
 
-
 // --- 404 Not Found Handler ---
 // Should be after all valid routes
 app.use((req, res, next) => {
@@ -412,7 +432,6 @@ app.use((err, req, res, next) => {
     res.status(statusCode).json(responseBody);
 });
 
-
 // --- Start Server ---
 const PORT = process.env.PORT || 5000;
 
@@ -427,7 +446,6 @@ connectDB().then(() => {
      console.error("❌ Failed to connect to MongoDB:", err);
      process.exit(1);
 });
-
 
 // --- Graceful Shutdown Handling (Optional but Recommended) ---
 process.on('SIGTERM', () => {

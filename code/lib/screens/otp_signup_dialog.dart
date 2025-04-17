@@ -2,8 +2,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/api_service.dart';
-import 'package:firebase_messaging/firebase_messaging.dart'; // Add this import
-import '../main.dart'; // Import to access the notification permission functions
+// import 'package:firebase_messaging/firebase_messaging.dart'; // Add this import
+// import '../main.dart'; // Import to access the notification permission functions
 
 class OTPDialog extends StatefulWidget {
   final String phoneNumber;

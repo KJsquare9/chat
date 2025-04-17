@@ -821,4 +821,42 @@ class ApiService {
       return false;
     }
   }
+
+  /// Find or create a conversation with a product seller
+  Future<Map<String, dynamic>> findOrCreateSellerConversation(
+    String productId,
+  ) async {
+    try {
+      final token = await _getAuthToken();
+      final response = await http.post(
+        Uri.parse('${baseUrl}/api/chat/product-seller/$productId/conversation'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      final responseData = json.decode(response.body);
+
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        return responseData;
+      } else {
+        throw Exception(
+          responseData['message'] ?? 'Failed to create conversation',
+        );
+      }
+    } catch (e) {
+      return {'success': false, 'message': e.toString()};
+    }
+  }
+
+  // Helper method to get the auth token
+  Future<String> _getAuthToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('auth_token');
+    if (token == null) {
+      throw Exception('Authentication token not found');
+    }
+    return token;
+  }
 }

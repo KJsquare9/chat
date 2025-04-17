@@ -1,5 +1,5 @@
 // Assuming models are exported from '../models/chatModels.js' or similar
-import { User, Conversation, Message } from "../models/models.js"; // Adjust path if needed
+import { User, Conversation, Message, Product } from "../models/models.js"; // Adjust path if needed
 import mongoose from "mongoose";
 
 // --- Helper Function for Error Responses ---
@@ -240,11 +240,88 @@ export const getMessages = async (req, res) => {
     }
 };
 
+/**
+ * @description Find or create a conversation with a product seller
+ * @route POST /api/chat/product-seller/:productId/conversation
+ * @access Private (Requires Auth)
+ */
+export const findOrCreateSellerConversation = async (req, res) => {
+    const { productId } = req.params;
+    const buyerId = req.user.id;
+
+    if (!mongoose.Types.ObjectId.isValid(productId)) {
+        return res.status(400).json({ success: false, message: "Invalid product ID" });
+    }
+
+    try {
+        // 1. Find the product to get the seller ID
+        const product = await Product.findById(productId).select('seller_id seller_name');
+        
+        if (!product) {
+            return res.status(404).json({ success: false, message: "Product not found" });
+        }
+
+        const sellerId = product.seller_id;
+        
+        if (buyerId.toString() === sellerId.toString()) {
+            return res.status(400).json({ success: false, message: "You cannot start a conversation with yourself" });
+        }
+
+        // 2. Find existing conversation or create a new one
+        const participants = [buyerId, sellerId].sort();
+        let conversation = await Conversation.findOne({ participants: { $all: participants, $size: 2 } })
+            .populate({
+                path: 'participants',
+                match: { _id: { $ne: buyerId } }, // Get the other participant (seller)
+                select: 'full_name _id'
+            });
+
+        if (!conversation) {
+            // Create a new conversation
+            conversation = new Conversation({ 
+                participants: participants,
+                updatedAt: new Date()
+            });
+            await conversation.save();
+            
+            // Re-fetch with populated fields
+            conversation = await Conversation.findById(conversation._id)
+                .populate({
+                    path: 'participants',
+                    match: { _id: { $ne: buyerId } },
+                    select: 'full_name _id'
+                });
+        }
+
+        // 3. Add the seller as a contact if they're not already
+        await User.findByIdAndUpdate(
+            buyerId, 
+            { $addToSet: { contacts: sellerId } }, 
+            { new: false }
+        );
+
+        // 4. Return the conversation data
+        const sellerInfo = conversation.participants[0];
+        
+        res.status(200).json({
+            success: true, 
+            conversation: {
+                _id: conversation._id,
+                sellerId: sellerInfo._id,
+                sellerName: sellerInfo.full_name || product.seller_name,
+            }
+        });
+    } catch (error) {
+        handleError(res, error, "Error finding/creating conversation with seller");
+    }
+};
+
 export {
     getUserContacts,
     searchUsers,
     addContact,
     updateFCMToken,
     getUserConversations,
-    getMessages
+    getMessages,
+    findOrCreateSellerConversation
 };
