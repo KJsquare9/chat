@@ -18,11 +18,58 @@ class FirebaseMessagingService {
     // Request permission
     await _requestPermission();
 
-    // Get and update FCM token
-    await getAndSendFCMToken();
+    // Initialize FCM but don't send token yet
+    await _initializeFCM();
 
     // Configure message handlers
     _configureMessageHandlers();
+  }
+
+  Future<void> _initializeFCM() async {
+    try {
+      // Get the FCM token
+      String? token = await _messaging.getToken();
+
+      if (token != null) {
+        debugPrint('FCM Token: $token');
+
+        // Save token locally (we'll send it when user is authenticated)
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('fcmToken', token);
+
+        // Listen for token refreshes
+        _messaging.onTokenRefresh.listen((newToken) async {
+          debugPrint('FCM Token refreshed: $newToken');
+          await prefs.setString('fcmToken', newToken);
+          await _sendTokenToBackend(newToken);
+        });
+      }
+    } catch (e) {
+      debugPrint('Error getting FCM token: $e');
+    }
+  }
+
+  // This method can be called after user login is complete
+  Future<void> getAndSendFCMToken() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      String? token = prefs.getString('fcmToken');
+
+      // If no token in prefs, request a new one
+      if (token == null) {
+        token = await _messaging.getToken();
+        if (token != null) {
+          await prefs.setString('fcmToken', token);
+        }
+      }
+
+      if (token != null) {
+        // Send to backend
+        await _sendTokenToBackend(token);
+      }
+    } catch (e) {
+      debugPrint('Error sending FCM token: $e');
+    }
   }
 
   Future<void> _requestPermission() async {
@@ -36,29 +83,7 @@ class FirebaseMessagingService {
       sound: true,
     );
 
-    print('User permission status: ${settings.authorizationStatus}');
-  }
-
-  Future<void> getAndSendFCMToken() async {
-    try {
-      // Get the FCM token
-      String? token = await _messaging.getToken();
-
-      if (token != null) {
-        print('FCM Token: $token');
-
-        // Send to backend
-        await _sendTokenToBackend(token);
-
-        // Listen for token refreshes
-        _messaging.onTokenRefresh.listen((newToken) async {
-          print('FCM Token refreshed: $newToken');
-          await _sendTokenToBackend(newToken);
-        });
-      }
-    } catch (e) {
-      print('Error getting/sending FCM token: $e');
-    }
+    debugPrint('User permission status: ${settings.authorizationStatus}');
   }
 
   Future<void> _sendTokenToBackend(String token) async {
@@ -68,7 +93,7 @@ class FirebaseMessagingService {
       final authToken = prefs.getString('token');
 
       if (userId == null || authToken == null) {
-        print('User ID or auth token not found, cannot update FCM token');
+        debugPrint('User ID or auth token not found, cannot update FCM token');
         return;
       }
 
@@ -82,20 +107,20 @@ class FirebaseMessagingService {
       );
 
       if (response.statusCode == 200) {
-        print('FCM token updated successfully on backend');
+        debugPrint('FCM token updated successfully on backend');
       } else {
-        print('Failed to update FCM token: ${response.statusCode}');
+        debugPrint('Failed to update FCM token: ${response.statusCode}');
       }
     } catch (e) {
-      print('Error sending FCM token to backend: $e');
+      debugPrint('Error sending FCM token to backend: $e');
     }
   }
 
   void _configureMessageHandlers() {
     // Handle messages when app is in foreground
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-      print('Got a message whilst in the foreground!');
-      print('Message data: ${message.data}');
+      debugPrint('Got a message whilst in the foreground!');
+      debugPrint('Message data: ${message.data}');
 
       final notification = message.notification;
       final data = message.data;
@@ -112,14 +137,14 @@ class FirebaseMessagingService {
 
     // Handle message opens when app is in background
     FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-      print('A message was opened from the background: ${message.data}');
+      debugPrint('A message was opened from the background: ${message.data}');
       _handleNotificationTap(message.data);
     });
 
     // Check for initial message (app opened from terminated state)
     FirebaseMessaging.instance.getInitialMessage().then((message) {
       if (message != null) {
-        print('App launched by clicking notification: ${message.data}');
+        debugPrint('App launched by clicking notification: ${message.data}');
         _handleNotificationTap(message.data);
       }
     });

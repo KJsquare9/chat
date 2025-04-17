@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import '../widgets/custom_navbar.dart';
 import 'market_product.dart';
-import 'my_listings_page.dart'; // Import MyListingsPage
-import 'list_item_screen.dart'; // Add this import for ListItemScreen
+import 'my_listings_page.dart';
+import 'list_item_screen.dart';
 import '../services/api_service.dart';
 import 'dart:typed_data';
+import 'dart:convert';
 
 class MarketplacePage extends StatefulWidget {
-  const MarketplacePage({super.key}); // Convert 'key' to super parameter
+  const MarketplacePage({super.key});
 
   @override
   MarketplacePageState createState() => MarketplacePageState();
@@ -30,6 +32,7 @@ class MarketplacePageState extends State<MarketplacePage> {
   List<Map<String, dynamic>> filteredProducts = [];
   bool isLoading = true;
   String? errorMessage;
+  double _scrollOffset = 0.0;
 
   @override
   void initState() {
@@ -40,21 +43,25 @@ class MarketplacePageState extends State<MarketplacePage> {
   Future<void> _fetchProducts() async {
     try {
       final apiService = ApiService();
+      final userPincode = await apiService.getPinCode();
       final fetchedProducts = await apiService.getProducts();
-      print(fetchedProducts);
+
+      final matchedProducts =
+          fetchedProducts.where((product) {
+            return product['pincode'].toString() == userPincode.toString();
+          }).toList();
+
       if (mounted) {
-        // Check if widget is still mounted
         setState(() {
-          products = fetchedProducts;
-          filteredProducts = fetchedProducts;
+          products = matchedProducts;
+          filteredProducts = matchedProducts;
           isLoading = false;
         });
       }
     } catch (e) {
       if (mounted) {
-        // Check if widget is still mounted
         setState(() {
-          errorMessage = e.toString();
+          errorMessage = 'Failed to load products: ${e.toString()}';
           isLoading = false;
         });
       }
@@ -62,25 +69,76 @@ class MarketplacePageState extends State<MarketplacePage> {
   }
 
   void _filterProducts() {
-    if (!mounted) return; // Check if widget is still mounted
+    if (!mounted) return;
     setState(() {
       String query = _searchController.text.toLowerCase();
       filteredProducts =
           products.where((product) {
             bool matchesSearch =
-                query.isEmpty || product['name'].toLowerCase().contains(query);
+                query.isEmpty ||
+                (product['name']?.toString()?.toLowerCase()?.contains(query) ??
+                    false);
             bool matchesCategory =
                 selectedCategory == null ||
                 selectedCategory == categories.length - 1 ||
-                product['category'].toLowerCase() ==
-                    categories[selectedCategory!]['label'].toLowerCase();
+                (product['category']?.toString()?.toLowerCase() ==
+                    categories[selectedCategory!]['label']
+                        .toString()
+                        .toLowerCase());
 
             return matchesSearch && matchesCategory;
           }).toList();
     });
   }
 
-  double _scrollOffset = 0.0; // Track scroll position
+  Future<void> _flagProduct(String productId) async {
+    try {
+      final apiService = ApiService();
+      String? token = await apiService.getToken();
+      String? sellerId = await apiService.getSellerId();
+
+      if (token == null || sellerId == null) {
+        throw Exception('User not logged in');
+      }
+
+      final response = await http.post(
+        Uri.parse('${apiService.baseUrl}/api/products/$productId/flag'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({'userId': sellerId}),
+      );
+
+      if (response.statusCode == 200) {
+        final responseData = jsonDecode(response.body);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              responseData['message'] ?? 'Product flagged successfully',
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
+        _fetchProducts(); // Refresh the product list
+      } else {
+        final errorData = jsonDecode(response.body);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(errorData['message'] ?? 'Failed to flag product'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -90,9 +148,12 @@ class MarketplacePageState extends State<MarketplacePage> {
         children: [
           NotificationListener<ScrollNotification>(
             onNotification: (scrollNotification) {
-              setState(() {
-                _scrollOffset = scrollNotification.metrics.pixels;
-              });
+              final newOffset = scrollNotification.metrics.pixels;
+              if ((_scrollOffset - newOffset).abs() > 1.0) {
+                setState(() {
+                  _scrollOffset = newOffset;
+                });
+              }
               return true;
             },
             child: CustomScrollView(
@@ -151,7 +212,6 @@ class MarketplacePageState extends State<MarketplacePage> {
                                       horizontal: 16.0,
                                     ),
                                   ),
-                                  // Remove onChanged: (value) { ... },
                                 ),
                               ),
                               const SizedBox(width: 8),
@@ -164,12 +224,10 @@ class MarketplacePageState extends State<MarketplacePage> {
                                           (context) => const MyListingsPage(),
                                     ),
                                   );
-
-                                  if (result != null) {
+                                  if (result == true) {
                                     _fetchProducts();
                                   }
                                 },
-
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: const Color(0xFFFF5002),
                                   foregroundColor: Colors.white,
@@ -229,7 +287,6 @@ class MarketplacePageState extends State<MarketplacePage> {
                     ),
                   ),
                 ),
-
                 if (isLoading)
                   const SliverFillRemaining(
                     child: Center(child: CircularProgressIndicator()),
@@ -259,6 +316,7 @@ class MarketplacePageState extends State<MarketplacePage> {
                             childAspectRatio: 0.7,
                           ),
                       delegate: SliverChildBuilderDelegate((context, index) {
+                        final product = filteredProducts[index];
                         return Container(
                           color: Colors.white,
                           child: Card(
@@ -274,63 +332,88 @@ class MarketplacePageState extends State<MarketplacePage> {
                                   MaterialPageRoute(
                                     builder:
                                         (context) => ProductDetailsPage(
-                                          product: filteredProducts[index],
+                                          product: product,
                                         ),
                                   ),
                                 );
                               },
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                              child: Stack(
                                 children: [
-                                  Expanded(
-                                    child: ClipRRect(
-                                      borderRadius: const BorderRadius.vertical(
-                                        top: Radius.circular(15.0),
-                                      ),
-                                      child:
-                                          filteredProducts[index]['images'] !=
-                                                      null &&
-                                                  filteredProducts[index]['images']
-                                                      .isNotEmpty &&
-                                                  filteredProducts[index]['images'][0]['data'] !=
-                                                      null
-                                              ? Image.memory(
-                                                Uint8List.fromList(
-                                                  List<int>.from(
-                                                    filteredProducts[index]['images'][0]['data']['data'],
+                                  Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Expanded(
+                                        child: ClipRRect(
+                                          borderRadius:
+                                              const BorderRadius.vertical(
+                                                top: Radius.circular(15.0),
+                                              ),
+                                          child:
+                                              product['images'] != null &&
+                                                      product['images']
+                                                          .isNotEmpty &&
+                                                      product['images'][0]['data'] !=
+                                                          null
+                                                  ? Image.memory(
+                                                    Uint8List.fromList(
+                                                      List<int>.from(
+                                                        product['images'][0]['data']['data'],
+                                                      ),
+                                                    ),
+                                                    width: double.infinity,
+                                                    fit: BoxFit.cover,
+                                                  )
+                                                  : const Icon(
+                                                    Icons.image_not_supported,
                                                   ),
-                                                ),
-                                                width: double.infinity,
-                                                fit: BoxFit.cover,
-                                              )
-                                              : const Icon(
-                                                Icons.image_not_supported,
-                                              ), // Fallback if no image
-                                    ),
-                                  ),
-
-                                  Padding(
-                                    padding: const EdgeInsets.all(8.0),
-                                    child: Text(
-                                      filteredProducts[index]['name'],
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 16,
+                                        ),
                                       ),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
+                                      Padding(
+                                        padding: const EdgeInsets.all(8.0),
+                                        child: Text(
+                                          product['name'] ?? 'Unnamed Product',
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 16,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8.0,
+                                        ),
+                                        child: Text(
+                                          '₹${product['price']?.toString() ?? '0'}',
+                                          style: TextStyle(
+                                            color: Colors.grey[600],
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 8),
+                                    ],
+                                  ),
+                                  Positioned(
+                                    top: 8,
+                                    right: 8,
+                                    child: GestureDetector(
+                                      onTap: () => _flagProduct(product['_id']),
+                                      child: Container(
+                                        padding: const EdgeInsets.all(4),
+                                        decoration: BoxDecoration(
+                                          color: Colors.white.withOpacity(0.7),
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: const Icon(
+                                          Icons.flag,
+                                          size: 18,
+                                          color: Colors.red,
+                                        ),
+                                      ),
                                     ),
                                   ),
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8.0,
-                                    ),
-                                    child: Text(
-                                      '₹${filteredProducts[index]['price'].toString()}',
-                                      style: TextStyle(color: Colors.grey[600]),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
                                 ],
                               ),
                             ),
@@ -353,7 +436,6 @@ class MarketplacePageState extends State<MarketplacePage> {
                     builder: (context) => const ListItemScreen(),
                   ),
                 );
-
                 if (result == true) {
                   _fetchProducts();
                 }

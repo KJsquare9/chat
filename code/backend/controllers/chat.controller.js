@@ -15,7 +15,7 @@ const handleError = (res, error, message = "Server Error", statusCode = 500) => 
  * @route GET /api/users/contacts
  * @access Private (Requires Auth)
  */
-export const getUserContacts = async (req, res) => {
+const getUserContacts = async (req, res) => {
     try {
         const userId = req.user.id; // Assuming auth middleware provides this
 
@@ -43,7 +43,7 @@ export const getUserContacts = async (req, res) => {
  * @route GET /api/users/search?query=...
  * @access Private (Requires Auth)
  */
-export const searchUsers = async (req, res) => {
+const searchUsers = async (req, res) => {
     const query = req.query.query ? String(req.query.query).trim() : '';
     const userId = req.user.id;
 
@@ -78,7 +78,7 @@ export const searchUsers = async (req, res) => {
  * @route POST /api/users/addContact
  * @access Private (Requires Auth)
  */
-export const addContact = async (req, res) => {
+const addContact = async (req, res) => {
     const { contactId } = req.body;
     const userId = req.user.id;
 
@@ -125,7 +125,7 @@ export const addContact = async (req, res) => {
  * @route PUT /api/users/me/updateFCMToken
  * @access Private (Requires Auth)
  */
-export const updateFCMToken = async (req, res) => {
+const updateFCMToken = async (req, res) => {
     const { fcmToken } = req.body;
     const userId = req.user.id;
 
@@ -159,7 +159,7 @@ export const updateFCMToken = async (req, res) => {
  * @route GET /api/conversations
  * @access Private (Requires Auth)
  */
-export const getUserConversations = async (req, res) => {
+const getUserConversations = async (req, res) => {
     try {
         const userId = req.user.id;
 
@@ -193,7 +193,7 @@ export const getUserConversations = async (req, res) => {
  * @route GET /api/conversations/:conversationId/messages?page=1&limit=20
  * @access Private (Requires Auth)
  */
-export const getMessages = async (req, res) => {
+const getMessages = async (req, res) => {
     const { conversationId } = req.params;
     const userId = req.user.id;
 
@@ -245,7 +245,7 @@ export const getMessages = async (req, res) => {
  * @route POST /api/chat/product-seller/:productId/conversation
  * @access Private (Requires Auth)
  */
-export const findOrCreateSellerConversation = async (req, res) => {
+const findOrCreateSellerConversation = async (req, res) => {
     const { productId } = req.params;
     const buyerId = req.user.id;
 

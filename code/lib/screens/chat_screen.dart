@@ -11,11 +11,11 @@ class ChatScreen extends StatefulWidget {
   final String receiverName;
 
   const ChatScreen({
-    Key? key,
+    super.key,
     required this.conversationId,
     required this.receiverId,
     required this.receiverName,
-  }) : super(key: key);
+  });
 
   @override
   _ChatScreenState createState() => _ChatScreenState();
@@ -308,7 +308,7 @@ class _ChatScreenState extends State<ChatScreen> {
         );
       }
     } catch (e) {
-      print('Error picking image: $e');
+      debugPrint('Error picking image: $e');
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Error picking image')));
@@ -338,7 +338,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
       return downloadUrl;
     } catch (e) {
-      print('Error uploading image: $e');
+      debugPrint('Error uploading image: $e');
       throw Exception('Failed to upload image');
     }
   }
@@ -348,8 +348,7 @@ class MessageBubble extends StatelessWidget {
   final ChatMessage message;
   final bool isMe;
 
-  const MessageBubble({Key? key, required this.message, required this.isMe})
-    : super(key: key);
+  const MessageBubble({super.key, required this.message, required this.isMe});
 
   @override
   Widget build(BuildContext context) {
@@ -371,6 +370,7 @@ class MessageBubble extends StatelessWidget {
               decoration: BoxDecoration(
                 color:
                     isMe
+                        // ignore: deprecated_member_use
                         ? Theme.of(context).primaryColor.withOpacity(0.8)
                         : Colors.grey[300],
                 borderRadius: BorderRadius.circular(12),

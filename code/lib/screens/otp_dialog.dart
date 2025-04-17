@@ -9,7 +9,7 @@ class OTPDialog extends StatefulWidget {
   final Widget nextPage;
   final String reqId;
 
-  OTPDialog({
+  const OTPDialog({
     super.key,
     required this.phoneNumber,
     required this.nextPage,
@@ -86,6 +86,8 @@ class _OTPDialogState extends State<OTPDialog> {
           // Request notification permissions after successful login
           await requestNotificationPermissions();
 
+          if (!mounted) return; // Add mounted check before using context
+
           Navigator.pop(context);
           Navigator.pushReplacement(
             context,
@@ -102,9 +104,12 @@ class _OTPDialogState extends State<OTPDialog> {
       _showSnackBar(e.toString());
     }
 
-    setState(() {
-      isLoading = false;
-    });
+    if (mounted) {
+      // Add mounted check before updating state
+      setState(() {
+        isLoading = false;
+      });
+    }
   }
 
   Future<void> _resendOTP() async {

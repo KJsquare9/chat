@@ -15,6 +15,7 @@ import { Server } from "socket.io";
 import jwt from 'jsonwebtoken'; // For Socket Auth
 import admin from 'firebase-admin'; // For Push Notifications
 import axios from 'axios'; // For calling Python service
+import { readFile } from 'fs/promises'; // For reading JSON file
 
 // --- Application Modules ---
 import { connectDB } from "./config/db.js"; // Assuming DB connection logic is here
@@ -23,7 +24,7 @@ import chatRoutes from "./routes/chat.route.js"; // Assuming chat API routes
 import productRoutes from "./routes/products.route.js"; // Example other routes
 import askyournetaRoutes from "./routes/askyourneta.route.js";
 import newsRoutes from "./routes/news.route.js";
-import { User, Conversation, Message } from "./models/chatModels.js"; // Assuming Mongoose models
+import { User, Conversation, Message } from "./models/models.js"; // Assuming Mongoose models
 
 // --- Load Environment Variables ---
 dotenv.config();
@@ -31,7 +32,7 @@ dotenv.config();
 // --- Environment Variable Checks ---
 const requiredEnvVars = [
     'PORT', 'MONGO_URI', 'JWT_SECRET',
-    'FIREBASE_SERVICE_ACCOUNT_KEY_PATH', 'CORS_ORIGIN'
+    'FIREBASE_SERVICE_ACCOUNT_KEY_PATH'
 ];
 const missingEnvVars = requiredEnvVars.filter(v => !process.env[v]);
 if (missingEnvVars.length > 0) {
@@ -41,11 +42,10 @@ if (missingEnvVars.length > 0) {
 
 // --- Firebase Admin SDK Initialization ---
 try {
-    const serviceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_PATH;
-    // Use dynamic import for JSON module compatibility
-    const serviceAccountModule = await import(serviceAccountPath, { assert: { type: 'json' } });
+    const serviceAccountPath = new URL('./chatapp-35273-firebase-adminsdk-fbsvc-cc4efca1ca.json', import.meta.url);
+    const serviceAccount = JSON.parse(await readFile(serviceAccountPath, 'utf8'));
     admin.initializeApp({
-        credential: admin.credential.cert(serviceAccountModule.default), // Access default export
+        credential: admin.credential.cert(serviceAccount),
     });
     console.log("✅ Firebase Admin SDK Initialized.");
 } catch (error) {
@@ -70,6 +70,8 @@ app.use(cors({
 app.use(compression()); // Compress responses
 app.use(express.json({ limit: '10mb' })); // Parse JSON bodies (adjust limit as needed)
 app.use(express.urlencoded({ limit: '10mb', extended: true })); // Parse URL-encoded bodies
+app.use(express.json());        // parse JSON bodies
+app.use(express.urlencoded({ extended: true }));
 
 // --- Basic API Rate Limiting ---
 const apiLimiter = rateLimit({
@@ -82,7 +84,6 @@ const apiLimiter = rateLimit({
 app.use('/api/', apiLimiter); // Apply rate limiter to all API routes
 
 // --- Application Logging Placeholder ---
-// In production, replace console logs with a proper logger like Winston or Pino
 app.use((req, res, next) => {
     console.log(`${new Date().toISOString()} - ${req.method} ${req.originalUrl}`);
     next();
@@ -94,6 +95,7 @@ app.use("/api/chat", chatRoutes); // Or maybe just /api/conversations ? Adjust p
 app.use("/api/products", productRoutes);
 app.use("/api/askyourneta", askyournetaRoutes);
 app.use("/api/news", newsRoutes);
+app.use('/api', userRoutes);    // mount user routes under /api
 
 // --- Specific News Search Route (using Python Service) ---
 const PYTHON_SERVICE_URL = process.env.PYTHON_SERVICE_URL || 'http://localhost:5001';
@@ -112,7 +114,6 @@ app.post('/api/news/search', apiLimiter, async (req, res, next) => { // Apply li
             console.error('Error calling Python service:', pythonError.message);
             const status = pythonError.response?.status || 503; // Service Unavailable
             const message = pythonError.response?.data?.error || 'Python news service unavailable';
-            // Create an error object for the central handler
             const err = new Error(message);
             err.status = status;
             next(err); // Pass error to central handler
@@ -124,7 +125,6 @@ app.post('/api/news/search', apiLimiter, async (req, res, next) => { // Apply li
 
 // --- Health Check Endpoint ---
 app.get('/health', (req, res) => {
-    // Optional: Check DB connection status here too
     res.status(200).json({ status: 'UP' });
 });
 
@@ -137,9 +137,6 @@ const io = new Server(server, {
         origin: process.env.CORS_ORIGIN, // Use same origin as HTTP CORS
         methods: ["GET", "POST"]
     },
-    // Consider lowering pingTimeout/pingInterval if needed for faster disconnect detection
-    // pingTimeout: 60000,
-    // pingInterval: 25000,
 });
 console.log("✅ Socket.IO initialized (using default in-memory adapter).");
 
@@ -155,7 +152,6 @@ io.use((socket, next) => {
     }
     try {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        // Ensure decoded payload has the expected userId field
         if (!decoded || !decoded.userId || !mongoose.Types.ObjectId.isValid(decoded.userId)) {
            throw new Error('Invalid token payload');
         }
@@ -163,7 +159,7 @@ io.use((socket, next) => {
         next();
     } catch (err) {
         console.error(`Socket Authentication Error: ${err.message} (Socket ID: ${socket.id})`);
-        return next(new Error('Authentication error: Invalid or expired token')); // Send generic error to client
+        return next(new Error('Authentication error: Invalid or expired token'));
     }
 });
 
@@ -172,14 +168,12 @@ io.on('connection', (socket) => {
     const userId = socket.userId;
     console.log(`User connected: ${userId} (Socket ID: ${socket.id})`);
 
-    // User Presence Tracking
     if (!userSockets.has(userId)) {
         userSockets.set(userId, new Set());
     }
     userSockets.get(userId).add(socket.id);
-    socket.join(userId); // Join user-specific room
+    socket.join(userId);
 
-    // Handle Disconnect
     socket.on('disconnect', (reason) => {
         console.log(`User disconnected: ${userId} (Socket ID: ${socket.id}, Reason: ${reason})`);
         if (userSockets.has(userId)) {
@@ -188,15 +182,11 @@ io.on('connection', (socket) => {
             if (userSocketSet.size === 0) {
                 userSockets.delete(userId);
                 console.log(`User ${userId} is now offline (removed from local map).`);
-                // Optional: Update DB / notify others
-                 // User.findByIdAndUpdate(userId, { onlineStatus: false, lastSeen: new Date() }).catch(err => console.error("DB update error on disconnect:", err));
             }
         }
     });
 
-    // Handle Send Message
     socket.on('sendMessage', async (data) => {
-        // Robust validation
         if (!data || typeof data !== 'object') {
             return socket.emit('sendMessageError', { 
                 tempId: data?.tempId, 
@@ -207,7 +197,6 @@ io.on('connection', (socket) => {
         const { receiverId, text, type = 'text', mediaUrl = null, tempId = null } = data;
         const senderId = socket.userId;
 
-        // Validate required fields
         if (!receiverId || !mongoose.Types.ObjectId.isValid(receiverId)) {
             return socket.emit('sendMessageError', { 
                 tempId, 
@@ -240,22 +229,20 @@ io.on('connection', (socket) => {
             const participants = [senderId, receiverId].sort();
             let conversation = await Conversation.findOneAndUpdate(
                 { participants: participants }, { updatedAt: new Date() }, { new: true, upsert: true }
-            ).lean(); // Use lean for performance if not modifying further
+            ).lean();
 
             const newMessage = new Message({
                 conversationId: conversation._id, senderId, receiverId,
-                text: type === 'text' ? text.trim() : null, // Trim text
+                text: type === 'text' ? text.trim() : null,
                 mediaUrl: ['image', 'video', 'file'].includes(type) ? mediaUrl : null,
                 type, timestamp: new Date(), status: 'sent'
             });
             await newMessage.save();
 
-            // Update conversation's lastMessage (don't await if not critical path)
             Conversation.findByIdAndUpdate(conversation._id, { lastMessage: newMessage._id }).exec();
 
-            // Prepare message for emission (populate sender - lean for performance)
             const sender = await User.findById(senderId).select('full_name _id').lean();
-             const messageToSend = {
+            const messageToSend = {
                 _id: newMessage._id,
                 conversationId: newMessage.conversationId,
                 senderId: newMessage.senderId,
@@ -268,7 +255,6 @@ io.on('connection', (socket) => {
                 sender: sender ? { _id: sender._id, full_name: sender.full_name } : { _id: senderId },
             };
 
-            // Emit to Receiver's room (reaches all their sockets on this instance) or send push
             const receiverSocketIds = userSockets.get(receiverId);
             if (receiverSocketIds && receiverSocketIds.size > 0) {
                 io.to(receiverId).emit('receiveMessage', messageToSend);
@@ -294,9 +280,7 @@ io.on('connection', (socket) => {
         }
     });
 
-    // Handle Typing Indicator
     socket.on('typing', async (data) => {
-        // **TODO: Add validation for data**
         if (!data || typeof data !== 'object') return;
         const { conversationId, receiverId } = data;
         const senderId = socket.userId;
@@ -304,14 +288,12 @@ io.on('connection', (socket) => {
 
         try {
             const conversation = await Conversation.findOne({ _id: conversationId, participants: senderId }).select('_id').lean();
-            if (!conversation) return; // User not participant or convo doesn't exist
+            if (!conversation) return;
             io.to(receiverId).emit('typing', { conversationId, senderId });
         } catch (error) { console.error(`Typing event error:`, error); }
     });
 
-    // Handle Stop Typing Indicator
     socket.on('stopTyping', async (data) => {
-       // **TODO: Add validation for data**
         if (!data || typeof data !== 'object') return;
         const { conversationId, receiverId } = data;
         const senderId = socket.userId;
@@ -324,9 +306,7 @@ io.on('connection', (socket) => {
         } catch (error) { console.error(`StopTyping event error:`, error); }
     });
 
-    // Handle Mark Messages as Read
     socket.on('markAsRead', async (data) => {
-       // **TODO: Add validation for data**
         if (!data || typeof data !== 'object') return;
         const { conversationId } = data;
         const readerId = socket.userId;
@@ -341,7 +321,7 @@ io.on('connection', (socket) => {
             }
             const senderId = conversation.participants.find(pId => pId.toString() !== readerId);
             if (!senderId) {
-                 console.error(`Could not find sender for markAsRead: User ${readerId}, Convo: ${conversationId}`);
+                console.error(`Could not find sender for markAsRead: User ${readerId}, Convo: ${conversationId}`);
                 return socket.emit('markAsReadError', { conversationId, error: "Could not identify message sender" });
             }
 
@@ -361,13 +341,11 @@ io.on('connection', (socket) => {
         }
     });
 
-    // Generic error handler for socket events (optional)
     socket.on('error', (err) => {
-       console.error(`Socket error for user ${socket.userId}: ${err.message}`);
-       // Consider disconnecting the socket if the error is severe: socket.disconnect();
+        console.error(`Socket error for user ${socket.userId}: ${err.message}`);
     });
 
-}); // End io.on('connection')
+});
 
 // --- Push Notification Function ---
 async function sendPushNotification(receiverId, senderId, messageText, conversationId) {
@@ -391,7 +369,7 @@ async function sendPushNotification(receiverId, senderId, messageText, conversat
             token: receiver.fcmToken,
             data: { type: 'newMessage', conversationId: conversationId.toString(), senderId: senderId.toString(), senderName },
             android: { priority: 'high', notification: { sound: 'default', channelId: 'new_messages_channel' } },
-            apns: { payload: { aps: { sound: 'default', badge: 1, 'content-available': 1 } } } // Badge count needs real logic
+            apns: { payload: { aps: { sound: 'default', badge: 1, 'content-available': 1 } } }
         };
 
         const response = await admin.messaging().send(messagePayload);
@@ -399,34 +377,29 @@ async function sendPushNotification(receiverId, senderId, messageText, conversat
     } catch (error) {
         console.error(`Error sending push notification to ${receiverId}:`, error);
         if (error.code === 'messaging/registration-token-not-registered') {
-            User.findByIdAndUpdate(receiverId, { $unset: { fcmToken: "" } }).exec(); // Remove invalid token
+            User.findByIdAndUpdate(receiverId, { $unset: { fcmToken: "" } }).exec();
         }
     }
 }
 
 // --- 404 Not Found Handler ---
-// Should be after all valid routes
 app.use((req, res, next) => {
     const error = new Error(`Not Found - ${req.originalUrl}`);
     error.status = 404;
-    next(error); // Pass error to the central error handler
+    next(error);
 });
 
 // --- Central Error Handler ---
-// Should be the last middleware
-// eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
     const statusCode = err.status || 500;
     console.error(`[${statusCode}] ${err.message} - ${req.originalUrl} - ${req.method} - ${req.ip}`);
-    console.error(err.stack); // Log stack trace for debugging
+    console.error(err.stack);
 
-    // Avoid leaking stack trace in production
     const responseBody = {
         success: false,
         message: statusCode === 500 && process.env.NODE_ENV === 'production'
                  ? 'Internal Server Error'
                  : err.message,
-        // stack: process.env.NODE_ENV === 'development' ? err.stack : undefined, // Optionally include stack in dev
     };
 
     res.status(statusCode).json(responseBody);
@@ -435,7 +408,6 @@ app.use((err, req, res, next) => {
 // --- Start Server ---
 const PORT = process.env.PORT || 5000;
 
-// Connect DB then start server
 connectDB().then(() => {
     server.listen(PORT, () => {
         console.log(`✅ Database Connected`);
@@ -443,29 +415,29 @@ connectDB().then(() => {
         console.log(`🔌 Socket.IO listening... (Default Adapter)`);
     });
 }).catch(err => {
-     console.error("❌ Failed to connect to MongoDB:", err);
-     process.exit(1);
+    console.error("❌ Failed to connect to MongoDB:", err);
+    process.exit(1);
 });
 
-// --- Graceful Shutdown Handling (Optional but Recommended) ---
+// --- Graceful Shutdown Handling ---
 process.on('SIGTERM', () => {
     console.log('SIGTERM signal received: closing HTTP server');
     server.close(() => {
         console.log('HTTP server closed');
         mongoose.connection.close(false, () => {
-             console.log('MongoDB connection closed');
-             process.exit(0);
+            console.log('MongoDB connection closed');
+            process.exit(0);
         });
     });
 });
 
-process.on('SIGINT', () => { // Handle Ctrl+C
+process.on('SIGINT', () => {
     console.log('SIGINT signal received: closing HTTP server');
-     server.close(() => {
+    server.close(() => {
         console.log('HTTP server closed');
-         mongoose.connection.close(false, () => {
-             console.log('MongoDB connection closed');
-             process.exit(0);
+        mongoose.connection.close(false, () => {
+            console.log('MongoDB connection closed');
+            process.exit(0);
         });
     });
 });

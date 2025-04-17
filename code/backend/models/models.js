@@ -13,7 +13,7 @@ const UserSchema = new mongoose.Schema({
     is_premium: { type: Boolean, default: false },
     is_admin: { type: Boolean, default: false },
     is_blocked: { type: Boolean, default: false }, // Can be used to prevent blocked users from messaging
-    referred_by: { type: Schema.Types.ObjectId, ref: "User", default: null },
+    referred_by: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     allow_notifications: { type: Boolean, default: true }, // Default changed to true, assuming most users want notifications
     search_history: [String],
 
@@ -56,7 +56,12 @@ const ProductSchema = new mongoose.Schema({
     },
     available_from_date: Date,
     is_flagged: { type: Boolean, default: false },
-    flagged_count: { type: Number, default: 0 }
+    flagged_count: { type: Number, default: 0 },
+    flagged_by: [{ 
+        type: mongoose.Schema.Types.ObjectId, 
+        ref: "User" 
+    }],
+    pincode: String
 });
 
 

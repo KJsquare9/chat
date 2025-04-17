@@ -1,13 +1,12 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'dart:developer' as dev;
 import '../services/api_service.dart'; // Import the API service
 import '../screens/otp_dialog_profile.dart';
 
-
 class ProfileInfoScreen extends StatefulWidget {
   const ProfileInfoScreen({super.key});
-  
+
   @override
   State<ProfileInfoScreen> createState() => _ProfileInfoScreenState();
 }
@@ -31,11 +30,11 @@ class _ProfileInfoScreenState extends State<ProfileInfoScreen> {
         _isLoading = true;
         _errorMessage = null;
       });
-      
+
       // Use the imported getUserProfile function
       final data = await apiService.getUserProfile();
-      print(data);
-      
+      dev.log('Profile data loaded: $data'); // Replace print with dev.log
+
       setState(() {
         _profileData = Map<String, dynamic>.from(data);
         _isLoading = false;
@@ -58,7 +57,7 @@ class _ProfileInfoScreenState extends State<ProfileInfoScreen> {
     setState(() {
       _profileData.clear();
       _profileData.addAll(updatedData);
-      _isEditing = false; 
+      _isEditing = false;
     });
   }
 
@@ -74,16 +73,17 @@ class _ProfileInfoScreenState extends State<ProfileInfoScreen> {
           ),
         ],
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _errorMessage != null
+      body:
+          _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : _errorMessage != null
               ? Center(child: Text(_errorMessage!))
               : _isEditing
-                  ? EditProfileScreen(
-                      profileData: _profileData,
-                      onSave: _saveProfile,
-                    )
-                  : ProfileDetails(profileData: _profileData),
+              ? EditProfileScreen(
+                profileData: _profileData,
+                onSave: _saveProfile,
+              )
+              : ProfileDetails(profileData: _profileData),
     );
   }
 }
@@ -105,7 +105,10 @@ class ProfileDetails extends StatelessWidget {
           _buildDetailItem('Village Name', profileData['Village Name'] ?? ''),
           _buildDetailItem('Pincode', profileData['Pincode'] ?? ''),
           _buildDetailItem('District Name', profileData['District Name'] ?? ''),
-          _buildDetailItem('Topic of Interests', profileData['Topic of Interests'] ?? ''),
+          _buildDetailItem(
+            'Topic of Interests',
+            profileData['Topic of Interests'] ?? '',
+          ),
         ],
       ),
     );
@@ -119,18 +122,12 @@ class ProfileDetails extends StatelessWidget {
         children: [
           Text(
             label,
-            style: const TextStyle(
-              fontSize: 14.0,
-              color: Colors.grey,
-            ),
+            style: const TextStyle(fontSize: 14.0, color: Colors.grey),
           ),
           const SizedBox(height: 4.0),
           Text(
             value,
-            style: const TextStyle(
-              fontSize: 16.0,
-              fontWeight: FontWeight.bold,
-            ),
+            style: const TextStyle(fontSize: 16.0, fontWeight: FontWeight.bold),
           ),
           const Divider(height: 20.0, thickness: 1.0),
         ],
@@ -162,11 +159,19 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     super.initState();
     _controllers = {
       'Name': TextEditingController(text: widget.profileData['Name']),
-      'Phone Number': TextEditingController(text: widget.profileData['Phone Number']),
-      'Village Name': TextEditingController(text: widget.profileData['Village Name']),
+      'Phone Number': TextEditingController(
+        text: widget.profileData['Phone Number'],
+      ),
+      'Village Name': TextEditingController(
+        text: widget.profileData['Village Name'],
+      ),
       'Pincode': TextEditingController(text: widget.profileData['Pincode']),
-      'District Name': TextEditingController(text: widget.profileData['District Name']),
-      'Topic of Interests': TextEditingController(text: widget.profileData['Topic of Interests']),
+      'District Name': TextEditingController(
+        text: widget.profileData['District Name'],
+      ),
+      'Topic of Interests': TextEditingController(
+        text: widget.profileData['Topic of Interests'],
+      ),
     };
   }
 
@@ -178,84 +183,100 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     super.dispose();
   }
 
- void _saveProfile() async {
-  if (_formKey.currentState!.validate()) {
-    final ApiService apiService = ApiService();
-    final String editedPhoneNumber = _controllers['Phone Number']!.text;
-    final String originalPhoneNumber = widget.profileData['Phone Number'];
-    if (editedPhoneNumber != originalPhoneNumber) {
-      bool? userExists = await apiService.checkUserExists(editedPhoneNumber);
-      if (userExists == true) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('This phone number is already in use.'),
+  void _saveProfile() async {
+    if (_formKey.currentState!.validate()) {
+      final ApiService apiService = ApiService();
+      final String editedPhoneNumber = _controllers['Phone Number']!.text;
+      final String originalPhoneNumber = widget.profileData['Phone Number'];
+
+      // Store ScaffoldMessengerState before async operations
+      final scaffoldMessenger = ScaffoldMessenger.of(context);
+
+      if (editedPhoneNumber != originalPhoneNumber) {
+        bool? userExists = await apiService.checkUserExists(editedPhoneNumber);
+
+        // Check if widget is still mounted
+        if (!mounted) return;
+
+        if (userExists == true) {
+          scaffoldMessenger.showSnackBar(
+            const SnackBar(
+              content: Text('This phone number is already in use.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+          return;
+        }
+      }
+
+      try {
+        String? requestId = await apiService.sendOTP(editedPhoneNumber);
+
+        // Check if widget is still mounted
+        if (!mounted) return;
+
+        if (requestId != null) {
+          _showOtpDialog(
+            fullName: _controllers['Name']!.text,
+            phoneNo: editedPhoneNumber,
+            pincode: _controllers['Pincode']!.text,
+            villageName: _controllers['Village Name']!.text,
+            district: _controllers['District Name']!.text,
+            topicOfInterests:
+                _controllers['Topic of Interests']!.text
+                    .split(',')
+                    .map((e) => e.trim())
+                    .toList(),
+            requestId: requestId, // Pass the request ID to the dialog
+          );
+        } else {
+          scaffoldMessenger.showSnackBar(
+            const SnackBar(
+              content: Text('Failed to send OTP. Please try again.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      } catch (e) {
+        // Check if widget is still mounted
+        if (!mounted) return;
+
+        // Handle any errors that occur during the API call
+        scaffoldMessenger.showSnackBar(
+          SnackBar(
+            content: Text('Error: ${e.toString()}'),
             backgroundColor: Colors.red,
           ),
         );
-        return; 
       }
-    }
-    try {
-      String? requestId = await apiService.sendOTP(editedPhoneNumber);
-      if (requestId != null) {
-        _showOtpDialog(
-          fullName: _controllers['Name']!.text,
-          phoneNo: editedPhoneNumber,
-          pincode: _controllers['Pincode']!.text,
-          villageName: _controllers['Village Name']!.text,
-          district: _controllers['District Name']!.text,
-          topicOfInterests: _controllers['Topic of Interests']!.text
-              .split(',')
-              .map((e) => e.trim())
-              .toList(),
-          requestId: requestId, // Pass the request ID to the dialog
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Failed to send OTP. Please try again.'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } catch (e) {
-      // Handle any errors that occur during the API call
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error: ${e.toString()}'),
-          backgroundColor: Colors.red,
-        ),
-      );
     }
   }
-}
-
 
   void _showOtpDialog({
-  required String fullName,
-  required String phoneNo,
-  required String pincode,
-  required String villageName,
-  required String district,
-  required String requestId,
-  required List<String> topicOfInterests,
-}) {
-  showDialog(
-    context: context,
-    builder: (context) {
-      return OTPDialog(
-        phoneNumber: phoneNo,
-        fullName: fullName,
-        pincode: pincode,
-        villageName: villageName,
-        district: district,
-        topicOfInterests: topicOfInterests,
-        requestId: requestId,
-        nextPage: const ProfileInfoScreen(),
-      );
-    },
-  );
-}
+    required String fullName,
+    required String phoneNo,
+    required String pincode,
+    required String villageName,
+    required String district,
+    required String requestId,
+    required List<String> topicOfInterests,
+  }) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return OTPDialog(
+          phoneNumber: phoneNo,
+          fullName: fullName,
+          pincode: pincode,
+          villageName: villageName,
+          district: district,
+          topicOfInterests: topicOfInterests,
+          requestId: requestId,
+          nextPage: const ProfileInfoScreen(),
+        );
+      },
+    );
+  }
 
   String? _validatePhoneNumber(String? value) {
     if (value == null || value.isEmpty) {
@@ -298,13 +319,19 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               validator: _validatePincode,
             ),
             _buildTextField('District Name', _controllers['District Name']!),
-            _buildTextField('Topic of Interests', _controllers['Topic of Interests']!),
+            _buildTextField(
+              'Topic of Interests',
+              _controllers['Topic of Interests']!,
+            ),
             const SizedBox(height: 24.0),
             ElevatedButton(
               onPressed: _saveProfile,
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF093466),
-                padding: const EdgeInsets.symmetric(horizontal: 50, vertical: 15),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 50,
+                  vertical: 15,
+                ),
               ),
               child: const Text(
                 'SAVE PROFILE',
@@ -327,9 +354,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       child: TextFormField(
         decoration: InputDecoration(
           labelText: label,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8.0),
-          ),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8.0)),
           filled: true,
           fillColor: Colors.grey[200],
         ),
@@ -339,5 +364,3 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     );
   }
 }
-
-

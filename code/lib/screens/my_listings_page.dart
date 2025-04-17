@@ -4,8 +4,8 @@ import '../services/api_service.dart';
 import 'edit_product_screen.dart';
 
 class MyListingsPage extends StatefulWidget {
-
-  const MyListingsPage();
+  // Add key parameter to constructor
+  const MyListingsPage({super.key});
 
   @override
   MyListingsPageState createState() => MyListingsPageState();
@@ -32,7 +32,7 @@ class MyListingsPageState extends State<MyListingsPage> {
         isLoading = false; // ✅ Stop loading once data is fetched
       });
     } catch (e) {
-      print('Error loading products: $e');
+      debugPrint('Error loading products: $e');
       setState(() {
         isLoading = false; // ✅ Stop loading even if fetching fails
       });
@@ -54,99 +54,114 @@ class MyListingsPageState extends State<MyListingsPage> {
           style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
         ),
       ),
-      body: isLoading
-          ? const Center(child: CircularProgressIndicator()) // ✅ Show loader only while loading
-          : products.isEmpty
+      body:
+          isLoading
               ? const Center(
-                  child: Text(
-                    'No products available.',
-                    style: TextStyle(fontSize: 16, color: Colors.grey),
-                  ),
-                )
+                child: CircularProgressIndicator(),
+              ) // ✅ Show loader only while loading
+              : products.isEmpty
+              ? const Center(
+                child: Text(
+                  'No products available.',
+                  style: TextStyle(fontSize: 16, color: Colors.grey),
+                ),
+              )
               : SingleChildScrollView(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    children: [
-                      ListView.separated(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        itemCount: products.length,
-                        separatorBuilder: (context, index) =>
-                            const Divider(height: 16),
-                        itemBuilder: (context, index) {
-                          return Row(
-                            crossAxisAlignment: CrossAxisAlignment.center,
-                            children: [
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(8.0),
-                                child: products[index]['images'] != null &&
-                                        products[index]['images'].isNotEmpty &&
-                                        products[index]['images'][0]['data'] != null
-                                    ? Image.memory(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  children: [
+                    ListView.separated(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: products.length,
+                      separatorBuilder:
+                          (context, index) => const Divider(height: 16),
+                      itemBuilder: (context, index) {
+                        return Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(8.0),
+                              child:
+                                  products[index]['images'] != null &&
+                                          products[index]['images']
+                                              .isNotEmpty &&
+                                          products[index]['images'][0]['data'] !=
+                                              null
+                                      ? Image.memory(
                                         Uint8List.fromList(
-                                          List<int>.from(products[index]['images']
-                                              [0]['data']['data']),
+                                          List<int>.from(
+                                            products[index]['images'][0]['data']['data'],
+                                          ),
                                         ),
                                         width: 80,
                                         height: 80,
                                         fit: BoxFit.cover,
                                       )
-                                    : const Icon(Icons.image_not_supported,
-                                        size: 80),
-                              ),
-                              const SizedBox(width: 16),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      products[index]['name'] ?? 'Unnamed Product',
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 16,
+                                      : const Icon(
+                                        Icons.image_not_supported,
+                                        size: 80,
                                       ),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    products[index]['name'] ??
+                                        'Unnamed Product',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
                                     ),
-                                    Text(
-                                      products[index]['price'] != null
-                                          ? '₹${products[index]['price']}'
-                                          : 'Price not available',
-                                      style: TextStyle(color: Colors.grey.shade600),
+                                  ),
+                                  Text(
+                                    products[index]['price'] != null
+                                        ? '₹${products[index]['price']}'
+                                        : 'Price not available',
+                                    style: TextStyle(
+                                      color: Colors.grey.shade600,
                                     ),
-                                  ],
-                                ),
+                                  ),
+                                ],
                               ),
-                              IconButton(
-                                icon: const Icon(Icons.edit),
-                                onPressed: () async {
-                                  await Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (context) => EditProductScreen(
-                                        product: products[index],
-                                      ),
-                                    ),
-                                  );
-                                  fetchProducts(); // ✅ Refresh after editing
-                                },
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.delete, color: Colors.red),
-                                onPressed: () {
-                                  _showDeleteConfirmationDialog(context, index);
-                                },
-                              ),
-                            ],
-                          );
-                        },
-                      ),
-                    ],
-                  ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.edit),
+                              onPressed: () async {
+                                await Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder:
+                                        (context) => EditProductScreen(
+                                          product: products[index],
+                                        ),
+                                  ),
+                                );
+                                fetchProducts(); // ✅ Refresh after editing
+                              },
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.delete, color: Colors.red),
+                              onPressed: () {
+                                _showDeleteConfirmationDialog(context, index);
+                              },
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                  ],
                 ),
+              ),
     );
   }
 
   Future<void> _showDeleteConfirmationDialog(
-      BuildContext context, int index) async {
+    BuildContext context,
+    int index,
+  ) async {
     return showDialog<void>(
       context: context,
       barrierDismissible: false, // user must tap button!
@@ -163,7 +178,10 @@ class MyListingsPageState extends State<MyListingsPage> {
               child: const Text('Delete'),
               onPressed: () async {
                 await _deleteProduct(index);
-                Navigator.of(context).pop();
+                if (mounted) {
+                  // Add mounted check here
+                  Navigator.of(context).pop();
+                }
               },
             ),
           ],
@@ -177,16 +195,14 @@ class MyListingsPageState extends State<MyListingsPage> {
       String productId = products[index]['_id'];
       await apiService.deleteProduct(productId);
 
-      setState(() {
-        products.removeAt(index);
-      });
+      // Add mounted check before using BuildContext after async gap
+      if (mounted) {
+        setState(() {
+          products.removeAt(index);
+        });
+      }
     } catch (e) {
-      print('Error deleting product: $e');
+      debugPrint('Error deleting product: $e');
     }
   }
 }
-
-
- 
-
-

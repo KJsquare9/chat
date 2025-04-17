@@ -2,8 +2,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/api_service.dart';
-// import 'package:firebase_messaging/firebase_messaging.dart'; // Add this import
-// import '../main.dart'; // Import to access the notification permission functions
 
 class OTPDialog extends StatefulWidget {
   final String phoneNumber;
@@ -82,6 +80,7 @@ class _OTPDialogState extends State<OTPDialog> {
     setState(() {
       isLoading = true;
     });
+
     try {
       bool success = await apiService.verifyOTP(
         widget.reqId,
@@ -97,15 +96,18 @@ class _OTPDialogState extends State<OTPDialog> {
           district: widget.district,
           topics: widget.topics,
         );
+
         if (!mounted) return;
 
         // Request notification permissions after successful registration
-        // Changed to use the ApiService method directly
         await apiService.requestNotificationPermission();
 
-        Navigator.pop(context);
-        Navigator.pushReplacement(
-          context,
+        if (!mounted) return;
+
+        // Store navigation actions before popping
+        final navigator = Navigator.of(context);
+        navigator.pop();
+        navigator.pushReplacement(
           MaterialPageRoute(builder: (context) => widget.nextPage),
         );
 
@@ -116,6 +118,8 @@ class _OTPDialogState extends State<OTPDialog> {
     } catch (e) {
       _showSnackBar(e.toString());
     }
+
+    if (!mounted) return;
 
     setState(() {
       isLoading = false;

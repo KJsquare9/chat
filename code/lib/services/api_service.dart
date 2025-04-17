@@ -17,7 +17,9 @@ class ApiService {
   final Logger logger = Logger();
   ApiService() {
     OTPWidget.initializeWidget(widgetId, authToken);
+    initializeFCM(); // Add this line to initialize FCM when the service is created
   }
+
   Future<bool?> checkUserExists(String phoneNumber) async {
     final String formattedPhoneNo = "+91$phoneNumber";
     final url = Uri.parse("$baseUrl/api/check-user");
@@ -81,6 +83,16 @@ class ApiService {
     if (response.statusCode == 200) {
       final data = json.decode(response.body);
       await saveToken(data['token']);
+
+      // Extract and save userId from the response
+      if (data['userId'] != null) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('userId', data['userId']);
+      }
+
+      // Send FCM token to backend now that we're authenticated
+      await _getAndSendFCMToken(data['userId'] ?? '');
+
       return true;
     } else {
       throw Exception(json.decode(response.body)['message']);
@@ -625,7 +637,7 @@ class ApiService {
       if (token == null) throw Exception('User not logged in');
 
       final response = await http.put(
-        Uri.parse('$baseUrl/users/$userId/notifications'),
+        Uri.parse('$baseUrl/api/users/$userId/notifications'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
@@ -646,16 +658,16 @@ class ApiService {
 
   Future<bool> updateFCMToken(String token) async {
     try {
-      String? userId = await getSellerId();
-      if (userId == null) return false;
+      final authToken = await getToken();
+      if (authToken == null) return false;
 
-      final response = await http.post(
-        Uri.parse('$baseUrl/chat/updateFCMToken'),
+      final response = await http.put(
+        Uri.parse('$baseUrl/api/users/me/updateFCMToken'),
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer ${await getToken()}',
+          'Authorization': 'Bearer $authToken',
         },
-        body: jsonEncode({'userId': userId, 'fcmToken': token}),
+        body: jsonEncode({'fcmToken': token}),
       );
 
       if (response.statusCode == 200) {
@@ -712,24 +724,32 @@ class ApiService {
       String? token = await FirebaseMessaging.instance.getToken();
       logger.i('FCM Token: $token');
 
-      if (token != null) {
+      if (token != null && userId.isNotEmpty) {
         // Send token to backend
         bool updated = await updateFCMToken(token);
         if (updated) {
-          logger.i('FCM token updated successfully');
+          logger.i('FCM token updated successfully for user $userId');
         } else {
-          logger.e('Failed to update FCM token');
+          logger.e('Failed to update FCM token for user $userId');
         }
 
         // Also update in notification preferences
         await updateNotificationPreference(userId, true, token);
+      } else {
+        logger.w(
+          'Cannot send FCM token: ${token == null ? "Token is null" : "User ID is empty"}',
+        );
       }
 
       // Listen for token refreshes
       FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
         logger.i('FCM Token refreshed: $newToken');
-        await updateFCMToken(newToken);
-        await updateNotificationPreference(userId, true, newToken);
+        if (userId.isNotEmpty) {
+          await updateFCMToken(newToken);
+          await updateNotificationPreference(userId, true, newToken);
+        } else {
+          logger.w('Cannot update refreshed FCM token: User ID is empty');
+        }
       });
     } catch (e) {
       logger.e('Error in _getAndSendFCMToken: $e');
@@ -745,6 +765,27 @@ class ApiService {
     } catch (e) {
       logger.e('Error checking notification permission: $e');
       return false;
+    }
+  }
+
+  // Initialize FCM token handling - call this when app starts
+  Future<void> initializeFCM() async {
+    try {
+      // Check if user is logged in
+      bool isUserLoggedIn = await isLoggedIn();
+      if (isUserLoggedIn) {
+        String? userId = await getSellerId();
+        if (userId != null) {
+          logger.i('User already logged in, sending FCM token');
+          await _getAndSendFCMToken(userId);
+        } else {
+          logger.w('User ID not available despite being logged in');
+        }
+      } else {
+        logger.i('User not logged in, will send FCM token after login');
+      }
+    } catch (e) {
+      logger.e('Error initializing FCM: $e');
     }
   }
 
@@ -829,7 +870,7 @@ class ApiService {
     try {
       final token = await _getAuthToken();
       final response = await http.post(
-        Uri.parse('${baseUrl}/api/chat/product-seller/$productId/conversation'),
+        Uri.parse('$baseUrl/api/chat/product-seller/$productId/conversation'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',

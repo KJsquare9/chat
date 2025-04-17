@@ -17,41 +17,51 @@ class AskYourNetaScreen extends StatelessWidget {
   final TextEditingController questionController = TextEditingController();
 
   void _showOTPDialog(BuildContext context) async {
-  final ApiService apiService = ApiService();
-  String? phoneNumber = await apiService.getUserPhoneNumber();
-  if (phoneNumber != null) {
-    String? requestId = await apiService.sendOTP(phoneNumber);
-    if (requestId != null) {
-      showDialog(
-        context: context,
-        builder: (BuildContext context) {
-          return OTPDialog(
-            phoneNumber: phoneNumber,
-            requestId: requestId, // Pass the request ID to the dialog
-            nextPage: const AskScreen(), // Pass AskScreen as nextPage
-            name: nameController.text,
-            constituency: constituencyController.text,
-            question: questionController.text,
-          );
-        },
-      );
+    // Store necessary context-dependent objects before any async operations
+    final ScaffoldMessengerState scaffoldMessenger = ScaffoldMessenger.of(
+      context,
+    );
+    final BuildContext contextCopy = context;
+
+    final ApiService apiService = ApiService();
+    String? phoneNumber = await apiService.getUserPhoneNumber();
+
+    if (phoneNumber != null) {
+      String? requestId = await apiService.sendOTP(phoneNumber);
+      if (requestId != null) {
+        // Check if the context is still valid
+        if (!contextCopy.mounted) return;
+
+        showDialog(
+          context: contextCopy,
+          builder: (BuildContext context) {
+            return OTPDialog(
+              phoneNumber: phoneNumber,
+              requestId: requestId, // Pass the request ID to the dialog
+              nextPage: const AskScreen(), // Pass AskScreen as nextPage
+              name: nameController.text,
+              constituency: constituencyController.text,
+              question: questionController.text,
+            );
+          },
+        );
+      } else {
+        scaffoldMessenger.showSnackBar(
+          const SnackBar(
+            content: Text('Failed to send OTP. Please try again.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
+      scaffoldMessenger.showSnackBar(
         const SnackBar(
-          content: Text('Failed to send OTP. Please try again.'),
+          content: Text('Failed to fetch phone number.'),
           backgroundColor: Colors.red,
         ),
       );
     }
-  } else {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Failed to fetch phone number.'),
-        backgroundColor: Colors.red,
-      ),
-    );
   }
-}
 
   @override
   Widget build(BuildContext context) {

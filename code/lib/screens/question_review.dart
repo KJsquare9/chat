@@ -4,16 +4,13 @@ import 'package:apnagram/screens/otp_dialog_ayn.dart'; // Ensure this import is 
 import '../services/api_service.dart';
 
 void main() {
-  runApp(MaterialApp(
-    home: ReviewQuestionScreen(
-      name: '',
-      constituency: '',
-      question: '',
+  runApp(
+    MaterialApp(
+      home: ReviewQuestionScreen(name: '', constituency: '', question: ''),
+      debugShowCheckedModeBanner: false,
     ),
-    debugShowCheckedModeBanner: false,
-  ));
+  );
 }
-
 
 class ReviewQuestionScreen extends StatelessWidget {
   final String name;
@@ -26,42 +23,53 @@ class ReviewQuestionScreen extends StatelessWidget {
     required this.constituency,
     required this.question,
   });
+
   void _showOTPDialog(BuildContext context) async {
-  final ApiService apiService = ApiService();
-  String? phoneNumber = await apiService.getUserPhoneNumber();
-  if (phoneNumber != null) {
-    String? requestId = await apiService.sendOTP(phoneNumber);
-    if (requestId != null) {
-      showDialog(
-        context: context,
-        builder: (BuildContext context) {
-          return OTPDialog(
-            phoneNumber: phoneNumber,
-            requestId: requestId, // Pass the request ID to the dialog
-            nextPage: const AskScreen(), // Pass AskScreen as nextPage
-            name: name,
-            constituency: constituency,
-            question: question,
-          );
-        },
-      );
+    // Store context-dependent objects before async operations
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+
+    final ApiService apiService = ApiService();
+    String? phoneNumber = await apiService.getUserPhoneNumber();
+
+    if (phoneNumber != null) {
+      String? requestId = await apiService.sendOTP(phoneNumber);
+
+      if (requestId != null) {
+        // Check if the context is still valid before showing dialog
+        if (!context.mounted) return;
+
+        showDialog(
+          context: context,
+          builder: (BuildContext context) {
+            return OTPDialog(
+              phoneNumber: phoneNumber,
+              requestId: requestId,
+              nextPage: const AskScreen(),
+              name: name,
+              constituency: constituency,
+              question: question,
+            );
+          },
+        );
+      } else {
+        // Use stored scaffoldMessenger instead of context
+        scaffoldMessenger.showSnackBar(
+          const SnackBar(
+            content: Text('Failed to send OTP. Please try again.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
+      // Use stored scaffoldMessenger instead of context
+      scaffoldMessenger.showSnackBar(
         const SnackBar(
-          content: Text('Failed to send OTP. Please try again.'),
+          content: Text('Failed to fetch phone number.'),
           backgroundColor: Colors.red,
         ),
       );
     }
-  } else {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Failed to fetch phone number.'),
-        backgroundColor: Colors.red,
-      ),
-    );
   }
-}
 
   @override
   Widget build(BuildContext context) {
@@ -92,7 +100,11 @@ class ReviewQuestionScreen extends StatelessWidget {
               // Title
               Text(
                 "Review Your Question",
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black),
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black,
+                ),
               ),
 
               // Instruction
@@ -123,7 +135,9 @@ class ReviewQuestionScreen extends StatelessWidget {
                 ),
                 child: Text("SUBMIT", style: TextStyle(color: Colors.white)),
               ),
-              SizedBox(height: 20), // Extra space at the bottom for better scrolling
+              SizedBox(
+                height: 20,
+              ), // Extra space at the bottom for better scrolling
             ],
           ),
         ),
@@ -138,7 +152,11 @@ class ReviewQuestionScreen extends StatelessWidget {
       children: [
         Text(
           label,
-          style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black),
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.bold,
+            color: Colors.black,
+          ),
         ),
         SizedBox(height: 5),
         Container(

@@ -326,7 +326,6 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> {
     );
   }
 
-  // Add this new method to handle contacting the seller
   Future<void> _contactSeller(BuildContext context) async {
     try {
       // Show loading indicator
@@ -340,8 +339,10 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> {
       final productId = widget.product['_id'];
 
       if (productId == null) {
-        Navigator.pop(context); // Dismiss loading dialog
-        _showErrorSnackbar(context, "Product ID is missing");
+        if (mounted) {
+          Navigator.pop(context); // Dismiss loading dialog
+          _showErrorSnackbar(context, "Product ID is missing");
+        }
         return;
       }
 
@@ -351,12 +352,14 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> {
       );
 
       // Dismiss loading dialog
+      if (!mounted) return;
       Navigator.pop(context);
 
       if (response['success'] == true && response['conversation'] != null) {
         final conversation = response['conversation'];
 
         // Navigate to the chat screen with the conversation data
+        if (!mounted) return;
         Navigator.push(
           context,
           MaterialPageRoute(
@@ -372,6 +375,7 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> {
           ),
         );
       } else {
+        if (!mounted) return;
         _showErrorSnackbar(
           context,
           response['message'] ?? "Failed to start conversation",
@@ -379,10 +383,10 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> {
       }
     } catch (e) {
       // Dismiss loading dialog if still showing
-      if (context.mounted && Navigator.canPop(context)) {
+      if (mounted && Navigator.canPop(context)) {
         Navigator.pop(context);
+        _showErrorSnackbar(context, "Error: ${e.toString()}");
       }
-      _showErrorSnackbar(context, "Error: ${e.toString()}");
     }
   }
 

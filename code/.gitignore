@@ -49,3 +49,6 @@ app.*.map.json
 
 # python related
 /backend/venv
+
+# Firebase Admin SDK JSON
+/backend/chatapp-35273-firebase-adminsdk-fbsvc-cc4efca1ca.json

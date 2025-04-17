@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/api_service.dart';
+
 class OTPDialog extends StatefulWidget {
   final String phoneNumber;
   final Widget nextPage;
@@ -10,19 +11,16 @@ class OTPDialog extends StatefulWidget {
   final String question;
   final String requestId;
 
-
   const OTPDialog({
-    super.key, 
+    super.key,
     required this.phoneNumber,
     required this.requestId,
     required this.nextPage,
-        required this.name,
+    required this.name,
 
     required this.constituency,
 
     required this.question,
-
-    
   });
 
   @override
@@ -70,78 +68,80 @@ class _OTPDialogState extends State<OTPDialog> {
   }
 
   Future<void> _verifyOTP() async {
-  if (otpController.text.length != 4) {
-    _showSnackBar('Enter a valid 4-digit OTP');
-    return;
-  }
+    if (otpController.text.length != 4) {
+      _showSnackBar('Enter a valid 4-digit OTP');
+      return;
+    }
 
-  setState(() {
-    isLoading = true; 
-  });
+    setState(() {
+      isLoading = true;
+    });
 
-  try {
-    String enteredOTP = otpController.text;
-    // String requestId = widget.requestId; 
+    try {
+      String enteredOTP = otpController.text;
+      // String requestId = widget.requestId;
 
-    bool otpVerified = await apiService.verifyOTP(widget.requestId, enteredOTP);
-    
-    if (otpVerified) {
-      bool success = await apiService.send_question(
-        name: widget.name,
-        constituency: widget.constituency,
-        question: widget.question,
+      bool otpVerified = await apiService.verifyOTP(
+        widget.requestId,
+        enteredOTP,
       );
 
-      if (success) {
-        print("SUCCESS----------------------------------------------------");
-        if (!mounted) return;
-        Navigator.pop(context);
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => widget.nextPage),
+      if (otpVerified) {
+        bool success = await apiService.send_question(
+          name: widget.name,
+          constituency: widget.constituency,
+          question: widget.question,
         );
-        _showSnackBar('OTP verified successfully and question submitted!');
-      } else {
-        _showSnackBar('Failed to send the question. Please try again.');
-      }
-    } else {
-      _showSnackBar('Invalid OTP. Please try again.');
-    }
-  } catch (e) {
-    _showSnackBar(e.toString());
-  } finally {
-    setState(() {
-      isLoading = false; 
-    });
-  }
-}
 
-  Future<void> _resendOTP() async {
-  if (canResend) {
-    try {
-      String? newReqId = await apiService.sendOTP(widget.phoneNumber);
-      if (newReqId != null) {
-        setState(() {
-        currentReqId = newReqId; 
-        });
-        _showSnackBar('OTP resent successfully');
-        startTimer();
+        if (success) {
+          debugPrint("OTP verification and question submission successful");
+          if (!mounted) return;
+          Navigator.pop(context);
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => widget.nextPage),
+          );
+          _showSnackBar('OTP verified successfully and question submitted!');
+        } else {
+          _showSnackBar('Failed to send the question. Please try again.');
+        }
       } else {
-        _showSnackBar("Failed to resend OTP");
+        _showSnackBar('Invalid OTP. Please try again.');
       }
     } catch (e) {
       _showSnackBar(e.toString());
+    } finally {
+      setState(() {
+        isLoading = false;
+      });
     }
   }
-}
+
+  Future<void> _resendOTP() async {
+    if (canResend) {
+      try {
+        String? newReqId = await apiService.sendOTP(widget.phoneNumber);
+        if (newReqId != null) {
+          setState(() {
+            currentReqId = newReqId;
+          });
+          _showSnackBar('OTP resent successfully');
+          startTimer();
+        } else {
+          _showSnackBar("Failed to resend OTP");
+        }
+      } catch (e) {
+        _showSnackBar(e.toString());
+      }
+    }
+  }
 
   void _showSnackBar(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
-
 
   @override
   Widget build(BuildContext context) {
@@ -175,10 +175,7 @@ class _OTPDialogState extends State<OTPDialog> {
       actions: [
         isLoading
             ? const CircularProgressIndicator()
-            : TextButton(
-                onPressed: _verifyOTP,
-                child: const Text('Verify'),
-              ),
+            : TextButton(onPressed: _verifyOTP, child: const Text('Verify')),
         TextButton(
           onPressed: () => Navigator.pop(context),
           child: const Text('Cancel'),

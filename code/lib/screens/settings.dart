@@ -5,7 +5,6 @@ import 'login_screen.dart'; // Import the LoginScreen
 import 'profile_screen.dart'; // Import the profile info screen
 import 'package:shared_preferences/shared_preferences.dart';
 
-
 class AppSettingsScreen extends StatefulWidget {
   const AppSettingsScreen({super.key});
 
@@ -16,17 +15,22 @@ class AppSettingsScreen extends StatefulWidget {
 class _AppSettingsScreenState extends State<AppSettingsScreen> {
   bool _notificationsEnabled = false;
 
-   void _logout(BuildContext context) async {
-  final prefs = await SharedPreferences.getInstance();
-  await prefs.remove('token'); // ✅ Remove the token from storage
+  void _logout(BuildContext context) async {
+    // Store the navigator before the async gap
+    final navigator = Navigator.of(context);
 
-  // Navigate to LoginScreen after logging out
-  Navigator.pushAndRemoveUntil(
-    context,
-    MaterialPageRoute(builder: (context) => const LoginScreen()),
-    (route) => false, // Removes all previous routes from the stack
-  );
-}
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('token'); // ✅ Remove the token from storage
+
+    // Check if the widget is still mounted before continuing
+    if (!mounted) return;
+
+    // Use the stored navigator reference instead of directly using context
+    navigator.pushAndRemoveUntil(
+      MaterialPageRoute(builder: (context) => const LoginScreen()),
+      (route) => false, // Removes all previous routes from the stack
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -35,10 +39,7 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
         backgroundColor: Colors.indigo[900],
         title: const Text(
           'APP SETTINGS',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 18.0,
-          ),
+          style: TextStyle(color: Colors.white, fontSize: 18.0),
         ),
         centerTitle: false,
       ),
@@ -120,10 +121,7 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
           const Divider(),
           ListTile(
             leading: const Icon(Icons.logout, color: Colors.red),
-            title: const Text(
-              'Logout',
-              style: TextStyle(color: Colors.red),
-            ),
+            title: const Text('Logout', style: TextStyle(color: Colors.red)),
             onTap: () {
               _logout(context);
             },

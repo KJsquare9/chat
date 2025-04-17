@@ -115,6 +115,7 @@ class NewsFeedScreenState extends State<NewsFeedScreen> {
                         borderRadius: BorderRadius.circular(10.0), // Rounded corners
                         boxShadow: [
                           BoxShadow(
+                            // ignore: deprecated_member_use
                             color: Colors.grey.withOpacity(0.3), // Subtle shadow
                             spreadRadius: 2,
                             blurRadius: 5,

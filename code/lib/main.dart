@@ -244,16 +244,35 @@ class _MyAppState extends State<MyApp> {
   void initState() {
     super.initState();
     if (widget.isLoggedIn) {
-      _firebaseMessaging.initialize();
-
-      // Initialize chat service by loading current user ID
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        Provider.of<ChatServiceProvider>(
-          context,
-          listen: false,
-        ).loadCurrentUserId();
-      });
+      _initializeServices();
     }
+  }
+
+  Future<void> _initializeServices() async {
+    // Initialize Firebase Messaging basic setup
+    await _firebaseMessaging.initialize();
+
+    // Get user ID and token using an explicit wait
+    final prefs = await SharedPreferences.getInstance();
+    final userId = prefs.getString('userId');
+    final token = prefs.getString('token');
+
+    // Only send the FCM token if we have userId and auth token
+    if (userId != null && token != null) {
+      await _firebaseMessaging.getAndSendFCMToken();
+    } else {
+      debugPrint(
+        'User ID or auth token not available yet. Will send FCM token after login.',
+      );
+    }
+
+    // Initialize chat service by loading current user ID
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Provider.of<ChatServiceProvider>(
+        context,
+        listen: false,
+      ).loadCurrentUserId();
+    });
   }
 
   @override

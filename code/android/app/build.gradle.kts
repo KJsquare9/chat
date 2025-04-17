@@ -16,6 +16,8 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
+        // Enable desugaring
+        isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
@@ -40,6 +42,17 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
+}
+
+dependencies {
+    implementation("androidx.core:core-ktx:1.10.1") // Ensure core-ktx is included
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:1.2.2") // Updated desugaring dependency
+    implementation("com.google.firebase:firebase-analytics-ktx:21.2.0")
+    implementation("com.google.firebase:firebase-auth-ktx:21.2.0")
+    implementation("com.google.firebase:firebase-firestore-ktx:24.2.0")
+    implementation("com.google.firebase:firebase-messaging-ktx:23.2.0")
+    implementation("com.google.firebase:firebase-database-ktx:20.2.0")
+    implementation("com.google.firebase:firebase-storage-ktx:20.2.0")
 }
 
 flutter {
