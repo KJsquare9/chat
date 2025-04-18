@@ -216,7 +216,7 @@ const getMessages = async (req, res) => {
 
     // Basic pagination setup
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20; // Default limit 20 messages
+    const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
     if (!mongoose.Types.ObjectId.isValid(conversationId)) {
@@ -224,37 +224,27 @@ const getMessages = async (req, res) => {
     }
 
     try {
-        // 1. Verify the user is part of this conversation (Security Check)
+        // Verify the user is part of this conversation
         const conversation = await Conversation.findOne({
             _id: conversationId,
-            participants: userId // Check if logged-in user is in the participants array
+            participants: userId,
         });
 
         if (!conversation) {
             return res.status(403).json({ success: false, message: "Access forbidden: You are not part of this conversation" });
         }
 
-        // 2. Fetch messages for the conversation with pagination
-        const messages = await Message.find({ conversationId: conversationId })
-            .sort({ timestamp: -1 }) // Sort by timestamp descending (newest first)
+        // Fetch messages for the conversation with pagination
+        const messages = await Message.find({ conversationId })
+            .sort({ timestamp: -1 })
             .skip(skip)
             .limit(limit)
-            .populate('senderId', 'full_name _id'); // Optionally populate sender info
+            .populate('senderId', 'full_name _id');
 
-        // You might want to return the total count for pagination calculation on the frontend
-        const totalMessages = await Message.countDocuments({ conversationId: conversationId });
-
-        res.status(200).json({
-            success: true,
-            messages: messages.reverse(), // Reverse for typical chat UI order (oldest at top)
-            currentPage: page,
-            totalPages: Math.ceil(totalMessages / limit),
-            totalMessages: totalMessages
-        });
-
+        res.status(200).json({ success: true, messages });
     } catch (error) {
         console.error("Error fetching messages:", error);
-        handleError(res, error, "Error fetching messages");
+        res.status(500).json({ success: false, message: "Server Error" });
     }
 };
 
@@ -334,6 +324,69 @@ const findOrCreateSellerConversation = async (req, res) => {
     }
 };
 
+/**
+ * @description Send a new message in a conversation
+ * @route POST /api/conversations/:conversationId/messages
+ * @access Private (Requires Auth)
+ */
+const sendMessage = async (req, res) => {
+    const { conversationId } = req.params;
+    const { receiverId, text, type = 'text', mediaUrl } = req.body;
+    const senderId = req.user.id;
+    
+    if (!mongoose.Types.ObjectId.isValid(conversationId)) {
+        return res.status(400).json({ success: false, message: "Invalid Conversation ID" });
+    }
+    
+    if (!receiverId || !text) {
+        return res.status(400).json({ success: false, message: "Receiver ID and message text are required" });
+    }
+
+    try {
+        // Verify the user is part of this conversation
+        const conversation = await Conversation.findOne({
+            _id: conversationId,
+            participants: senderId,
+        });
+
+        if (!conversation) {
+            return res.status(403).json({ success: false, message: "Access forbidden: You are not part of this conversation" });
+        }
+        
+        // Create new message
+        const newMessage = new Message({
+            conversationId,
+            senderId,
+            receiverId,
+            text,
+            type,
+            mediaUrl,
+            timestamp: new Date(),
+            status: 'sent' // Initial status
+        });
+        
+        await newMessage.save();
+        
+        // Update the conversation's lastMessage and updatedAt
+        await Conversation.findByIdAndUpdate(conversationId, {
+            lastMessage: newMessage._id,
+            updatedAt: new Date()
+        });
+        
+        // Populate the sender details in the response
+        const populatedMessage = await Message.findById(newMessage._id)
+            .populate('senderId', 'full_name _id');
+        
+        res.status(201).json({ 
+            success: true, 
+            message: populatedMessage 
+        });
+        
+    } catch (error) {
+        handleError(res, error, "Error sending message");
+    }
+};
+
 export {
     getUserContacts,
     searchUsers,
@@ -341,5 +394,6 @@ export {
     updateFCMToken,
     getUserConversations,
     getMessages,
-    findOrCreateSellerConversation
+    findOrCreateSellerConversation,
+    sendMessage // Export the new function
 };

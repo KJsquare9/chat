@@ -7,6 +7,7 @@ import 'package:flutter/scheduler.dart'; // Added for SchedulerPhase
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
+import '../services/api_service.dart'; // Add this import for ApiService
 
 // --- Enums ---
 enum MessageStatus { sending, sent, delivered, read, failed }
@@ -95,8 +96,7 @@ class ChatMessage {
     return ChatMessage(
       id: json['_id']?.toString(),
       conversationId:
-          json['conversationId']?.toString() ??
-          'unknown_conversation', // Provide default
+          json['conversationId']?.toString() ?? 'unknown_conversation',
       senderId: parsedSenderId,
       receiverId: parsedReceiverId,
       text: json['text']?.toString() ?? '',
@@ -104,12 +104,11 @@ class ChatMessage {
       mediaUrl: json['mediaUrl']?.toString(),
       timestamp:
           DateTime.tryParse(json['timestamp'] ?? '')?.toLocal() ??
-          DateTime.now(), // Safer parsing
+          DateTime.now(),
       status: parseStatus(json['status']?.toString()),
     );
   }
 
-  // Add toJson for potential caching or sending pending messages if needed
   Map<String, dynamic> toJson() {
     return {
       '_id': id,
@@ -120,19 +119,17 @@ class ChatMessage {
       'text': text,
       'type': type,
       'mediaUrl': mediaUrl,
-      'timestamp': timestamp.toUtc().toIso8601String(), // Store in UTC
-      'status': status.name, // Store enum name as string
+      'timestamp': timestamp.toUtc().toIso8601String(),
+      'status': status.name,
     };
   }
 }
 
 class Conversation {
   final String id;
-  final List<dynamic> participants; // Consider creating a User model
+  final List<dynamic> participants;
   final ChatMessage? lastMessage;
   final DateTime updatedAt;
-  // Add unread count if needed
-  // int unreadCount = 0;
 
   Conversation({
     required this.id,
@@ -144,9 +141,7 @@ class Conversation {
   factory Conversation.fromJson(Map<String, dynamic> json) {
     return Conversation(
       id: json['_id'],
-      participants: List<dynamic>.from(
-        json['participants'] ?? [],
-      ), // Ensure it's a list
+      participants: List<dynamic>.from(json['participants'] ?? []),
       lastMessage:
           json['lastMessage'] != null && json['lastMessage'] is Map
               ? ChatMessage.fromJson(
@@ -155,7 +150,7 @@ class Conversation {
               : null,
       updatedAt:
           DateTime.tryParse(json['updatedAt'] ?? '')?.toLocal() ??
-          DateTime.now(), // Safer parsing
+          DateTime.now(),
     );
   }
 }
@@ -167,46 +162,34 @@ class ChatServiceProvider with ChangeNotifier {
   String? _activeConversationId;
   ConnectionStatus _connectionStatus = ConnectionStatus.disconnected;
 
-  // State
   final Map<String, List<ChatMessage>> _messagesMap = {};
   List<ChatMessage> _activeConversationMessages = [];
   List<Conversation> _conversations = [];
   bool _isLoadingMessages = false;
   bool _isLoadingConversations = false;
   String? _error;
-  final Map<String, bool> _typingUsers = {}; // Map<senderId, isTyping>
+  final Map<String, bool> _typingUsers = {};
 
-  // Pending messages (consider persisting these)
-  final List<ChatMessage> _pendingMessages = []; // Store ChatMessage objects
+  final List<ChatMessage> _pendingMessages = [];
   Timer? _reconnectionTimer;
   int _retryAttempts = 0;
   static const int _maxRetryAttempts = 5;
 
-  // Configuration
-  // Use const for URL if it's truly constant
-  static const String _socketUrl =
-      'http://10.0.2.2:5000'; // Android emulator loopback
-  // static const String _socketUrl = 'http://localhost:5000'; // iOS Simulator / Desktop
-  // static const String _socketUrl = 'YOUR_DEPLOYED_BACKEND_URL'; // Deployed backend
+  static const String _socketUrl = 'http://10.0.2.2:5000';
 
-  // Getters
   String get currentUserId => _currentUserId ?? '';
   bool get isConnected => _connectionStatus == ConnectionStatus.connected;
   ConnectionStatus get connectionStatus => _connectionStatus;
   List<ChatMessage> get activeMessages => _activeConversationMessages;
-  List<Conversation> get conversations =>
-      List.unmodifiable(_conversations); // Return unmodifiable list
+  List<Conversation> get conversations => List.unmodifiable(_conversations);
   bool get isLoadingMessages => _isLoadingMessages;
   bool get isLoadingConversations => _isLoadingConversations;
   String? get error => _error;
-  Map<String, bool> get typingUsers =>
-      Map.unmodifiable(_typingUsers); // Return unmodifiable map
+  Map<String, bool> get typingUsers => Map.unmodifiable(_typingUsers);
   String? get activeConversationId => _activeConversationId;
 
-  // Initialization and Connection
   Future<void> initialize() async {
     await loadCurrentUserId();
-    // Optionally load pending messages from storage here
     if (_currentUserId != null) {
       connect();
     }
@@ -217,19 +200,24 @@ class ChatServiceProvider with ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       final userId = prefs.getString('userId');
+
+      final token = prefs.getString('token');
+      if (token == null || token.isEmpty) {
+        log('No auth token found in SharedPreferences.');
+        _error = 'Authentication token not found.';
+        return;
+      }
+
       if (userId != null && userId.isNotEmpty) {
         _currentUserId = userId;
         log('Current User ID loaded: $_currentUserId');
-        // Don't notify here, let initialize or connect handle it
       } else {
         log('No User ID found in SharedPreferences.');
-        _error = 'User not logged in.'; // Set error if needed
-        // No notifyListeners needed here, state isn't changing visually yet
+        _error = 'User not logged in.';
       }
     } catch (e) {
       log('Error loading current user ID: $e');
       _error = 'Failed to load user data.';
-      // No notifyListeners needed here
     }
   }
 
@@ -240,14 +228,13 @@ class ChatServiceProvider with ChangeNotifier {
       return;
     }
 
-    // Ensure user ID is loaded
     if (_currentUserId == null) {
       await loadCurrentUserId();
       if (_currentUserId == null) {
         _error = 'Cannot connect: User ID not available.';
         _connectionStatus = ConnectionStatus.disconnected;
         log(_error!);
-        _safelyNotifyListeners(); // Notify if state changed (error set)
+        _safelyNotifyListeners();
         return;
       }
     }
@@ -259,30 +246,27 @@ class ChatServiceProvider with ChangeNotifier {
       _error = 'Cannot connect: Authentication token missing.';
       _connectionStatus = ConnectionStatus.disconnected;
       log(_error!);
-      _safelyNotifyListeners(); // Notify if state changed
+      _safelyNotifyListeners();
       return;
     }
 
     log('Attempting to connect to Socket Server...');
     _connectionStatus = ConnectionStatus.connecting;
-    _error = null; // Clear previous errors
+    _error = null;
     _safelyNotifyListeners();
 
-    // Clean up existing socket and timer before creating a new one
-    disconnect(notify: false); // Disconnect silently
+    disconnect(notify: false);
 
     try {
       _socket = IO.io(_socketUrl, <String, dynamic>{
         'transports': ['websocket'],
-        'autoConnect': false, // Connect manually after setting up listeners
-        'forceNew': true, // Ensure a new connection
+        'autoConnect': false,
+        'forceNew': true,
         'auth': {'token': token},
-        // Add reconnection options if needed, though we handle manually
-        // 'reconnection': false,
       });
 
       _registerSocketListeners();
-      _socket?.connect(); // Manually initiate connection
+      _socket?.connect();
     } catch (e) {
       log("Error initializing socket: $e");
       _error = 'Failed to initialize connection.';
@@ -295,12 +279,10 @@ class ChatServiceProvider with ChangeNotifier {
     _reconnectionTimer?.cancel();
     _reconnectionTimer = null;
     _socket?.disconnect();
-    _socket?.dispose(); // Release resources
+    _socket?.dispose();
     _socket = null;
     _connectionStatus = ConnectionStatus.disconnected;
-    // _isConnected is derived from _connectionStatus now
-    _typingUsers.clear(); // Clear typing status on disconnect
-    // Don't clear _activeConversationId here, user might still be viewing the screen
+    _typingUsers.clear();
 
     if (notify) {
       _safelyNotifyListeners();
@@ -308,24 +290,19 @@ class ChatServiceProvider with ChangeNotifier {
     log('Socket disconnected.');
   }
 
-  // Socket Event Listeners Registration
   void _registerSocketListeners() {
     _socket?.onConnect((_) {
       log('Socket connected: ${_socket?.id}');
       _connectionStatus = ConnectionStatus.connected;
       _error = null;
-      _retryAttempts = 0; // Reset retry attempts on successful connection
-      _reconnectionTimer?.cancel(); // Cancel any pending reconnection attempts
+      _retryAttempts = 0;
+      _reconnectionTimer?.cancel();
       _safelyNotifyListeners();
-      _retryPendingMessages(); // Send any messages that failed while offline
-      // Optionally re-fetch conversations or active chat messages if needed
+      _retryPendingMessages();
       if (_activeConversationId != null) {
-        fetchMessages(
-          _activeConversationId!,
-          forceRefresh: true,
-        ); // Refresh active chat
+        fetchMessages(_activeConversationId!, forceRefresh: true);
       }
-      fetchConversations(); // Refresh conversation list
+      fetchConversations();
     });
 
     _socket?.onDisconnect((reason) {
@@ -333,7 +310,6 @@ class ChatServiceProvider with ChangeNotifier {
       _connectionStatus = ConnectionStatus.disconnected;
       _typingUsers.clear();
       _safelyNotifyListeners();
-      // Attempt reconnection only if it wasn't a manual disconnect (e.g., logout)
       if (reason != 'io client disconnect') {
         _attemptReconnection();
       }
@@ -342,35 +318,23 @@ class ChatServiceProvider with ChangeNotifier {
     _socket?.onConnectError((data) {
       log('Socket connection error: $data');
       _connectionStatus = ConnectionStatus.disconnected;
-      // Don't set _error here, let reconnect logic handle it
       _safelyNotifyListeners();
-      _attemptReconnection(); // Attempt to reconnect on connection errors
+      _attemptReconnection();
     });
 
     _socket?.onError((data) {
       log('Socket error: $data');
-      // Handle specific errors if needed, maybe update _error state
-      // _error = 'A socket error occurred: $data';
-      // _safelyNotifyListeners();
     });
 
-    // Custom App Event Listeners
     _socket?.on('receiveMessage', _handleReceiveMessage);
-    _socket?.on(
-      'messageSent',
-      _handleMessageSentConfirmation,
-    ); // Renamed for clarity
+    _socket?.on('messageSent', _handleMessageSentConfirmation);
     _socket?.on('sendMessageError', _handleSendMessageError);
     _socket?.on('messagesRead', _handleMessagesRead);
     _socket?.on('typing', _handleTyping);
     _socket?.on('stopTyping', _handleStopTyping);
-    _socket?.on(
-      'conversationUpdate',
-      _handleConversationUpdate,
-    ); // Example: For last message updates
+    _socket?.on('conversationUpdate', _handleConversationUpdate);
   }
 
-  // Socket Event Handlers
   void _handleReceiveMessage(dynamic data) {
     log('Received message data: $data');
     if (data == null || data is! Map) {
@@ -379,33 +343,23 @@ class ChatServiceProvider with ChangeNotifier {
     }
     try {
       final message = ChatMessage.fromJson(Map<String, dynamic>.from(data));
-
-      // Add message to the specific conversation's list in the map
       _addMessageToMap(message);
 
-      // If it's for the currently active chat, update the active list
       if (message.conversationId == _activeConversationId) {
-        // Avoid duplicates in active list too
         if (!_activeConversationMessages.any(
           (m) => m.id != null && m.id == message.id,
         )) {
           _activeConversationMessages.insert(0, message);
-          // Mark as read immediately if received while chat is active
           if (message.senderId != _currentUserId) {
             markAsRead(message.conversationId);
           }
-          // Clear typing indicator for the sender
           _typingUsers.remove(message.senderId);
         }
-      } else {
-        // TODO: Increment unread count for the conversation message.conversationId
-        // You'll need to add unread counts to your Conversation model or track separately
-      }
+      } else {}
 
-      // Update the conversation list (last message, timestamp)
       _updateConversationList(message.conversationId, message);
 
-      _safelyNotifyListeners(); // Notify about the new message and potential conversation update
+      _safelyNotifyListeners();
     } catch (e, stackTrace) {
       log('Error handling received message: $e\n$stackTrace');
     }
@@ -432,10 +386,8 @@ class ChatServiceProvider with ChangeNotifier {
         Map<String, dynamic>.from(messageData),
       );
 
-      // Update the temporary message with the confirmed one (with ID, final timestamp, status)
       _updateTempMessageInMapAndActiveList(tempId, confirmedMessage);
 
-      // Update conversation list as well
       _updateConversationList(
         confirmedMessage.conversationId,
         confirmedMessage,
@@ -464,7 +416,6 @@ class ChatServiceProvider with ChangeNotifier {
 
       log('Message failed to send (tempId: $tempId): $errorMsg');
 
-      // Mark the specific message as failed using its tempId
       _updateMessageStatusByTempId(tempId, MessageStatus.failed);
 
       _safelyNotifyListeners();
@@ -481,22 +432,18 @@ class ChatServiceProvider with ChangeNotifier {
     }
     try {
       final conversationId = data['conversationId']?.toString();
-      final readerId =
-          data['readerId']?.toString(); // The user who read the messages
+      final readerId = data['readerId']?.toString();
 
       if (conversationId == null || readerId == null) {
         log('Error: Missing conversationId or readerId in messagesRead data.');
         return;
       }
 
-      // We only care if someone *else* read *our* messages.
       if (readerId != _currentUserId) {
         bool changed = false;
-        // Update status in the main map
         if (_messagesMap.containsKey(conversationId)) {
           final messagesInConv = _messagesMap[conversationId]!;
           for (int i = 0; i < messagesInConv.length; i++) {
-            // If message was sent by me and receiver was the reader, mark as read
             if (messagesInConv[i].senderId == _currentUserId &&
                 messagesInConv[i].receiverId == readerId &&
                 messagesInConv[i].status != MessageStatus.read) {
@@ -506,14 +453,12 @@ class ChatServiceProvider with ChangeNotifier {
           }
         }
 
-        // Update status in the active conversation list if it matches
         if (conversationId == _activeConversationId) {
           for (int i = 0; i < _activeConversationMessages.length; i++) {
             if (_activeConversationMessages[i].senderId == _currentUserId &&
                 _activeConversationMessages[i].receiverId == readerId &&
                 _activeConversationMessages[i].status != MessageStatus.read) {
               _activeConversationMessages[i].status = MessageStatus.read;
-              // 'changed' should already be true if map was updated
             }
           }
         }
@@ -539,13 +484,9 @@ class ChatServiceProvider with ChangeNotifier {
         _typingUsers[senderId] = true;
         _safelyNotifyListeners();
 
-        // Auto-clear typing after a delay (e.g., 3 seconds)
-        // Use a Timer associated with the senderId to handle overlapping events
-        _typingTimers[senderId]
-            ?.cancel(); // Cancel previous timer for this user
+        _typingTimers[senderId]?.cancel();
         _typingTimers[senderId] = Timer(const Duration(seconds: 3), () {
           if (_typingUsers.remove(senderId) == true) {
-            // Check if it was actually removed
             _safelyNotifyListeners();
           }
           _typingTimers.remove(senderId);
@@ -556,7 +497,7 @@ class ChatServiceProvider with ChangeNotifier {
     }
   }
 
-  final Map<String, Timer> _typingTimers = {}; // Store timers for typing
+  final Map<String, Timer> _typingTimers = {};
 
   void _handleStopTyping(dynamic data) {
     if (data == null || data is! Map) return;
@@ -565,10 +506,9 @@ class ChatServiceProvider with ChangeNotifier {
       final senderId = data['senderId']?.toString();
 
       if (conversationId == _activeConversationId && senderId != null) {
-        _typingTimers[senderId]?.cancel(); // Cancel the auto-clear timer
+        _typingTimers[senderId]?.cancel();
         _typingTimers.remove(senderId);
         if (_typingUsers.remove(senderId) == true) {
-          // Check if it was actually removed
           _safelyNotifyListeners();
         }
       }
@@ -577,7 +517,6 @@ class ChatServiceProvider with ChangeNotifier {
     }
   }
 
-  // Example handler for generic conversation updates (e.g., last message)
   void _handleConversationUpdate(dynamic data) {
     log('Received conversationUpdate: $data');
     if (data == null || data is! Map) return;
@@ -592,7 +531,6 @@ class ChatServiceProvider with ChangeNotifier {
           _conversations[index] = updatedConv;
           _safelyNotifyListeners();
         } else {
-          // Maybe add it if it's a new conversation for the user?
           _conversations.insert(0, updatedConv);
           _safelyNotifyListeners();
         }
@@ -602,25 +540,17 @@ class ChatServiceProvider with ChangeNotifier {
     }
   }
 
-  // --- Helper Methods ---
-
-  // Safely notify listeners, potentially deferring if in a problematic state
   void _safelyNotifyListeners() {
-    // Check if Flutter is building/rendering. This is a basic check.
-    // Using addPostFrameCallback is safer for handlers responding to async events.
     if (WidgetsBinding.instance.schedulerPhase ==
         SchedulerPhase.persistentCallbacks) {
-      // We are likely in a build phase or similar. Defer the notification.
       WidgetsBinding.instance.addPostFrameCallback((_) {
         notifyListeners();
       });
     } else {
-      // Not in a build phase, safe to notify immediately.
       notifyListeners();
     }
   }
 
-  // Adds or updates a message in the _messagesMap
   void _addMessageToMap(ChatMessage message) {
     final conversationId = message.conversationId;
     if (!_messagesMap.containsKey(conversationId)) {
@@ -629,7 +559,6 @@ class ChatServiceProvider with ChangeNotifier {
 
     final messageList = _messagesMap[conversationId]!;
 
-    // Check if message with this ID or tempId already exists
     final existingIndex = messageList.indexWhere(
       (m) =>
           (message.id != null && m.id == message.id) ||
@@ -637,38 +566,28 @@ class ChatServiceProvider with ChangeNotifier {
     );
 
     if (existingIndex == -1) {
-      // New message, insert at the beginning (latest first)
       messageList.insert(0, message);
     } else {
-      // Message exists, update it (e.g., tempId replaced by ID, status update)
-      // Important: Preserve original timestamp if only status/ID changes
       final existingMessage = messageList[existingIndex];
       messageList[existingIndex] = ChatMessage(
-        id: message.id ?? existingMessage.id, // Prefer new ID
+        id: message.id ?? existingMessage.id,
         tempId:
             message.id != null
                 ? null
-                : (message.tempId ??
-                    existingMessage.tempId), // Clear tempId if real ID exists
+                : (message.tempId ?? existingMessage.tempId),
         conversationId: message.conversationId,
         senderId: message.senderId,
         receiverId: message.receiverId,
         text: message.text,
         type: message.type,
         mediaUrl: message.mediaUrl,
-        timestamp: existingMessage.timestamp, // Keep original timestamp usually
-        status: message.status, // Update status
+        timestamp: existingMessage.timestamp,
+        status: message.status,
       );
       log("Updated existing message in map: ${message.id ?? message.tempId}");
     }
-
-    // Optional: Limit messages per conversation in memory
-    // if (messageList.length > 100) {
-    //   messageList.removeRange(100, messageList.length);
-    // }
   }
 
-  // Updates a message identified by tempId with a confirmed message (having a real ID)
   void _updateTempMessageInMapAndActiveList(
     String tempId,
     ChatMessage confirmedMessage,
@@ -676,12 +595,10 @@ class ChatServiceProvider with ChangeNotifier {
     bool changed = false;
     final conversationId = confirmedMessage.conversationId;
 
-    // Update in the main map
     if (_messagesMap.containsKey(conversationId)) {
       final messageList = _messagesMap[conversationId]!;
       final index = messageList.indexWhere((m) => m.tempId == tempId);
       if (index != -1) {
-        // Replace the temporary message with the confirmed one
         messageList[index] = confirmedMessage;
         changed = true;
         log(
@@ -690,29 +607,24 @@ class ChatServiceProvider with ChangeNotifier {
       }
     }
 
-    // Update in the active conversation list if it matches
     if (conversationId == _activeConversationId) {
       final index = _activeConversationMessages.indexWhere(
         (m) => m.tempId == tempId,
       );
       if (index != -1) {
         _activeConversationMessages[index] = confirmedMessage;
-        changed = true; // Change should already be true
+        changed = true;
         log(
           "Updated message in active list (tempId: $tempId -> id: ${confirmedMessage.id})",
         );
       }
     }
-
-    // No separate notifyListeners here, handled by the calling event handler (_handleMessageSentConfirmation)
   }
 
-  // Updates the status of a message identified by its temporary ID
   void _updateMessageStatusByTempId(String tempId, MessageStatus status) {
     bool changed = false;
     String? targetConversationId;
 
-    // Find and update in the main map
     for (var entry in _messagesMap.entries) {
       final messageList = entry.value;
       final index = messageList.indexWhere((m) => m.tempId == tempId);
@@ -725,11 +637,10 @@ class ChatServiceProvider with ChangeNotifier {
             "Updated message status in map (tempId: $tempId, status: $status)",
           );
         }
-        break; // Found it, no need to check other conversations
+        break;
       }
     }
 
-    // Find and update in the active list if applicable
     if (targetConversationId != null &&
         targetConversationId == _activeConversationId) {
       final index = _activeConversationMessages.indexWhere(
@@ -737,124 +648,98 @@ class ChatServiceProvider with ChangeNotifier {
       );
       if (index != -1 && _activeConversationMessages[index].status != status) {
         _activeConversationMessages[index].status = status;
-        // changed should already be true
         log(
           "Updated message status in active list (tempId: $tempId, status: $status)",
         );
       }
     }
-
-    // No separate notifyListeners here, handled by the calling event handler (_handleSendMessageError)
   }
 
-  // Updates the conversation list (last message, timestamp)
   void _updateConversationList(String conversationId, ChatMessage message) {
     final index = _conversations.indexWhere((c) => c.id == conversationId);
     if (index != -1) {
-      // Update existing conversation
       final oldConv = _conversations[index];
-      // Only update if the new message is newer than the current last message
       if (oldConv.lastMessage == null ||
           message.timestamp.isAfter(oldConv.lastMessage!.timestamp)) {
         _conversations[index] = Conversation(
           id: oldConv.id,
           participants: oldConv.participants,
           lastMessage: message,
-          updatedAt: message.timestamp, // Update conversation timestamp
+          updatedAt: message.timestamp,
         );
-        // Sort conversations by updated time (most recent first)
         _conversations.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-        // _safelyNotifyListeners(); // Notify is handled by the calling handler
       }
     } else {
-      // If conversation not found, fetch it or handle as needed
-      // This might indicate a new conversation starting
       log(
         "Received message for unknown conversation $conversationId. Fetching conversations might be needed.",
       );
-      // Optionally trigger fetchConversations() here if required
     }
   }
 
   void _attemptReconnection() {
-    // Don't attempt if already connected or connecting, or if max attempts reached
     if (_connectionStatus == ConnectionStatus.connected ||
         _connectionStatus == ConnectionStatus.connecting ||
         _retryAttempts >= _maxRetryAttempts) {
       if (_retryAttempts >= _maxRetryAttempts) {
         log("Max reconnection attempts reached.");
         _error = 'Connection failed after multiple attempts.';
-        _safelyNotifyListeners(); // Show final error
+        _safelyNotifyListeners();
       }
       return;
     }
 
-    // Cancel previous timer if any
     _reconnectionTimer?.cancel();
 
-    final delay = Duration(
-      seconds: 1 << _retryAttempts,
-    ); // Exponential backoff: 1, 2, 4, 8, 16
+    final delay = Duration(seconds: 1 << _retryAttempts);
     log(
       'Attempting reconnection in ${delay.inSeconds} seconds (attempt ${_retryAttempts + 1})...',
     );
 
     _reconnectionTimer = Timer(delay, () {
       if (_connectionStatus != ConnectionStatus.connected) {
-        // Check again before connecting
         log('Executing reconnection attempt ${_retryAttempts + 1}');
-        _socket?.connect(); // Attempt to connect
-        // Note: _retryAttempts is incremented *after* a failed attempt (in onConnectError/onDisconnect)
-        _retryAttempts++; // Increment attempts *before* the connection attempt
+        _socket?.connect();
+        _retryAttempts++;
       } else {
         log("Reconnection attempt cancelled, already connected.");
-        _retryAttempts = 0; // Reset if connection was established meanwhile
+        _retryAttempts = 0;
       }
     });
   }
 
-  // Retry sending messages that were added to _pendingMessages
   void _retryPendingMessages() {
     if (!isConnected || _pendingMessages.isEmpty) return;
 
     log('Retrying ${_pendingMessages.length} pending messages...');
 
-    // Take ownership of pending messages to avoid race conditions
     final messagesToRetry = List<ChatMessage>.from(_pendingMessages);
     _pendingMessages.clear();
 
     for (final message in messagesToRetry) {
-      // Re-validate necessary fields before sending
       if (message.tempId != null && message.receiverId.isNotEmpty) {
         log('Retrying message: ${message.tempId} to ${message.receiverId}');
-        // Emit the message again
         _socket?.emit('sendMessage', {
           'receiverId': message.receiverId,
           'text': message.text,
           'type': message.type,
           'mediaUrl': message.mediaUrl,
-          'tempId': message.tempId, // Use the original tempId
+          'tempId': message.tempId,
         });
-        // Keep the message status as 'sending' or update UI if needed
         _updateMessageStatusByTempId(message.tempId!, MessageStatus.sending);
       } else {
         log('Skipping retry for invalid pending message: ${message.toJson()}');
       }
     }
     if (messagesToRetry.isNotEmpty) {
-      _safelyNotifyListeners(); // Notify UI about status changes to 'sending'
+      _safelyNotifyListeners();
     }
   }
 
-  // --- Public Methods ---
-
-  // Send a message
   void sendMessage(
     String receiverId,
     String text, {
     String type = 'text',
     String? mediaUrl,
-    // conversationId is usually determined by the backend or setActiveChat
   }) {
     if (_currentUserId == null || _currentUserId!.isEmpty) {
       _error = 'Cannot send message: User ID not set.';
@@ -867,17 +752,14 @@ class ChatServiceProvider with ChangeNotifier {
       _error = 'Cannot send message: No active conversation set.';
       _safelyNotifyListeners();
       log(_error!);
-      // Or alternatively, you could find/create the conversation ID based on receiverId
       return;
     }
 
     final timestamp = DateTime.now();
-    // Generate a unique temporary ID for client-side tracking
     final tempId = 'temp_${_currentUserId}_${timestamp.millisecondsSinceEpoch}';
 
     final tempMessage = ChatMessage(
       tempId: tempId,
-      // Use the currently active conversation ID when sending
       conversationId: _activeConversationId!,
       senderId: _currentUserId!,
       receiverId: receiverId,
@@ -885,21 +767,17 @@ class ChatServiceProvider with ChangeNotifier {
       type: type,
       mediaUrl: mediaUrl,
       timestamp: timestamp,
-      status: MessageStatus.sending, // Initial status
+      status: MessageStatus.sending,
     );
 
-    // Add to UI immediately
     _addMessageToMap(tempMessage);
-    // Add to active messages list
     if (tempMessage.conversationId == _activeConversationId) {
       _activeConversationMessages.insert(0, tempMessage);
     }
-    // Update conversation list's last message optimistically
     _updateConversationList(tempMessage.conversationId, tempMessage);
 
-    _safelyNotifyListeners(); // Update UI to show the "sending" message
+    _safelyNotifyListeners();
 
-    // Send via socket if connected
     if (isConnected && _socket != null) {
       log('Emitting sendMessage event for tempId: $tempId');
       _socket?.emit('sendMessage', {
@@ -908,58 +786,145 @@ class ChatServiceProvider with ChangeNotifier {
         'type': type,
         'mediaUrl': mediaUrl,
         'tempId': tempId,
-        // Send conversationId if your backend expects/uses it for routing
-        // 'conversationId': _activeConversationId,
       });
     } else {
-      // Not connected: Mark as failed and add to pending list
-      log('Socket not connected. Adding message $tempId to pending queue.');
+      log('Socket not connected, adding message to pending queue');
+      _pendingMessages.add(tempMessage);
       _updateMessageStatusByTempId(tempId, MessageStatus.failed);
-      _pendingMessages.add(tempMessage); // Add the full message object
-      _safelyNotifyListeners(); // Update UI to show failed status
-      _attemptReconnection(); // Try to reconnect if not already trying
+
+      // Attempt to persist message via HTTP API as fallback
+      _persistMessageViaAPI(tempMessage);
     }
   }
 
-  // Set the currently active chat screen
-  void setActiveChat(
-    String conversationId,
-    String otherUserId /* Added otherUserId */,
-  ) {
+  // Add a new method to persist messages via API when socket is unavailable
+  Future<void> _persistMessageViaAPI(ChatMessage message) async {
+    try {
+      final apiService = ApiService();
+      final success = await apiService.sendMessage(
+        conversationId: message.conversationId,
+        receiverId: message.receiverId,
+        text: message.text,
+        type: message.type,
+        mediaUrl: message.mediaUrl,
+      );
+
+      if (success) {
+        _updateMessageStatusByTempId(message.tempId!, MessageStatus.sent);
+        log('Message persisted via API successfully');
+      } else {
+        log('Failed to persist message via API');
+      }
+    } catch (e) {
+      log('Error persisting message via API: $e');
+    }
+  }
+
+  Future<void> fetchMessages(
+    String conversationId, {
+    bool forceRefresh = false,
+  }) async {
+    if (_isLoadingMessages && !forceRefresh) return;
+
+    log("Fetching messages for conversation: $conversationId");
+    _isLoadingMessages = true;
+    _error = null;
+    if (_activeConversationId == conversationId) {
+      _safelyNotifyListeners();
+    }
+
+    try {
+      // First try using the socket-based approach for real-time functionality
+      if (isConnected && _socket != null) {
+        // Existing code for socket-based fetching
+        // ...
+      } else {
+        // Fallback to REST API if socket is not connected
+        log("Socket not connected, fetching messages via HTTP API");
+        await _fetchMessagesViaAPI(conversationId);
+      }
+    } catch (e, stackTrace) {
+      log('Error fetching messages for $conversationId: $e\n$stackTrace');
+      _error = 'Failed to load messages.';
+
+      // Try fallback method if first method fails
+      try {
+        await _fetchMessagesViaAPI(conversationId);
+      } catch (fallbackError) {
+        log('Fallback message fetching also failed: $fallbackError');
+      }
+    } finally {
+      _isLoadingMessages = false;
+      if (_activeConversationId == conversationId) {
+        _safelyNotifyListeners();
+      }
+    }
+  }
+
+  // Add a new method to fetch messages via REST API
+  Future<void> _fetchMessagesViaAPI(String conversationId) async {
+    try {
+      final apiService = ApiService();
+      final messages = await apiService.fetchConversationMessagesWithLogging(
+        conversationId,
+      );
+
+      if (messages.isNotEmpty) {
+        // Convert the API response to ChatMessage objects
+        final chatMessages =
+            messages
+                .map(
+                  (json) =>
+                      ChatMessage.fromJson(Map<String, dynamic>.from(json)),
+                )
+                .toList();
+
+        // Update the message map
+        _messagesMap[conversationId] = chatMessages;
+
+        // Update active conversation messages if this is the active conversation
+        if (_activeConversationId == conversationId) {
+          _activeConversationMessages = List.from(chatMessages);
+          markAsRead(conversationId);
+        }
+
+        log(
+          "Fetched and stored ${chatMessages.length} messages for $conversationId via API",
+        );
+      } else {
+        log("No messages found for conversation $conversationId via API");
+      }
+    } catch (e) {
+      log('Error fetching messages via API: $e');
+      throw e; // Re-throw to handle in the calling method
+    }
+  }
+
+  void setActiveChat(String conversationId, String otherUserId) {
     log("Setting active chat: $conversationId");
     if (_activeConversationId == conversationId) {
       log("Conversation $conversationId is already active.");
-      // Optionally force refresh if needed
-      // fetchMessages(conversationId, forceRefresh: true);
       return;
     }
 
-    // Clear previous typing indicators
     _typingUsers.clear();
     _activeConversationId = conversationId;
 
-    // Load messages from map if available, otherwise fetch
     if (_messagesMap.containsKey(conversationId)) {
       _activeConversationMessages = List.from(_messagesMap[conversationId]!);
       log(
         "Loaded ${_activeConversationMessages.length} messages from cache for $conversationId",
       );
-      // Mark as read right away if loaded from cache
       markAsRead(conversationId);
-      _safelyNotifyListeners(); // Notify UI about the change
+      _safelyNotifyListeners();
     } else {
       log("No messages in cache for $conversationId. Fetching...");
-      _activeConversationMessages = []; // Clear old messages if any
-      _safelyNotifyListeners(); // Show empty list initially
-      fetchMessages(
-        conversationId,
-      ); // Fetch and this will notify upon completion
+      _activeConversationMessages = [];
+      _safelyNotifyListeners();
+      fetchMessages(conversationId);
     }
-
-    // TODO: Reset unread count for this conversationId
   }
 
-  // Clear the active chat (e.g., when navigating away)
   void clearActiveChat() {
     log("Clearing active chat.");
     if (_activeConversationId != null) {
@@ -970,22 +935,19 @@ class ChatServiceProvider with ChangeNotifier {
     }
   }
 
-  // Send typing indicators
   void sendTypingEvent(String receiverId) {
     if (!isConnected || _activeConversationId == null || _currentUserId == null)
       return;
-    // log('Sending typing event to $receiverId in $_activeConversationId');
     _socket?.emit('typing', {
       'conversationId': _activeConversationId,
-      'receiverId': receiverId, // Backend needs to know who to notify
-      'senderId': _currentUserId, // Backend needs to know who is typing
+      'receiverId': receiverId,
+      'senderId': _currentUserId,
     });
   }
 
   void sendStopTypingEvent(String receiverId) {
     if (!isConnected || _activeConversationId == null || _currentUserId == null)
       return;
-    // log('Sending stop typing event to $receiverId in $_activeConversationId');
     _socket?.emit('stopTyping', {
       'conversationId': _activeConversationId,
       'receiverId': receiverId,
@@ -993,7 +955,6 @@ class ChatServiceProvider with ChangeNotifier {
     });
   }
 
-  // Mark messages in a conversation as read by the current user
   void markAsRead(String conversationId) {
     if (!isConnected || _currentUserId == null || conversationId.isEmpty)
       return;
@@ -1001,26 +962,22 @@ class ChatServiceProvider with ChangeNotifier {
     bool needsServerUpdate = false;
     bool uiChanged = false;
 
-    // Update locally first for immediate UI feedback
     final messagesInConv = _messagesMap[conversationId];
     if (messagesInConv != null) {
       for (var msg in messagesInConv) {
-        // If message was received by me and is not already read
         if (msg.receiverId == _currentUserId &&
             msg.status != MessageStatus.read) {
           msg.status = MessageStatus.read;
-          needsServerUpdate = true; // We need to tell the server we read these
+          needsServerUpdate = true;
           uiChanged = true;
         }
       }
     }
-    // Also update active messages list if it's the current one
     if (conversationId == _activeConversationId) {
       for (var msg in _activeConversationMessages) {
         if (msg.receiverId == _currentUserId &&
             msg.status != MessageStatus.read) {
           msg.status = MessageStatus.read;
-          // uiChanged should already be true if map was updated
         }
       }
     }
@@ -1029,117 +986,15 @@ class ChatServiceProvider with ChangeNotifier {
       log("Emitting markAsRead for conversation $conversationId");
       _socket?.emit('markAsRead', {
         'conversationId': conversationId,
-        'readerId': _currentUserId, // Send who read the messages
+        'readerId': _currentUserId,
       });
     }
 
     if (uiChanged) {
-      _safelyNotifyListeners(); // Update UI to show messages as read
-    } else {
-      // log("No unread messages found locally to mark as read for $conversationId");
-    }
-  }
-
-  // --- API Methods ---
-
-  // Fetch messages for a specific conversation
-  Future<void> fetchMessages(
-    String conversationId, {
-    bool forceRefresh = false,
-  }) async {
-    if (_isLoadingMessages && !forceRefresh)
-      return; // Avoid concurrent fetches unless forced
-
-    // If messages exist and not forcing refresh, maybe don't fetch?
-    // Decide based on your app's logic (e.g., fetch if older than X minutes)
-    // if (_messagesMap.containsKey(conversationId) && !forceRefresh) {
-    //   log("Messages for $conversationId already in cache. Not fetching.");
-    //   // Ensure active list is updated if needed (might happen if setActiveChat loads from cache)
-    //   if (_activeConversationId == conversationId && _activeConversationMessages.isEmpty) {
-    //     _activeConversationMessages = List.from(_messagesMap[conversationId]!);
-    //      _safelyNotifyListeners();
-    //   }
-    //   return;
-    // }
-
-    log("Fetching messages for conversation: $conversationId");
-    _isLoadingMessages = true;
-    _error = null; // Clear previous errors
-    // Notify loading state only if it's the active conversation
-    if (_activeConversationId == conversationId) {
       _safelyNotifyListeners();
     }
-
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('token');
-      if (token == null) throw Exception('Authentication token not found.');
-
-      final response = await http
-          .get(
-            Uri.parse(
-              '$_socketUrl/api/conversations/$conversationId/messages',
-            ), // Ensure API endpoint is correct
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer $token',
-            },
-          )
-          .timeout(const Duration(seconds: 15)); // Add timeout
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (data != null &&
-            data['success'] == true &&
-            data['messages'] is List) {
-          final List<dynamic> messagesJson = data['messages'];
-          final messages =
-              messagesJson
-                  .map(
-                    (json) =>
-                        ChatMessage.fromJson(Map<String, dynamic>.from(json)),
-                  )
-                  .toList();
-
-          // Update the map (replace existing messages for this conversation)
-          _messagesMap[conversationId] = messages;
-          log(
-            "Fetched and stored ${messages.length} messages for $conversationId",
-          );
-
-          // Update active list ONLY if this is still the active conversation
-          if (_activeConversationId == conversationId) {
-            _activeConversationMessages = List.from(messages);
-            // Mark fetched messages as read immediately after fetching if they are for the current user
-            markAsRead(conversationId);
-          }
-        } else {
-          throw Exception(
-            data['message'] ?? 'Failed to parse messages response.',
-          );
-        }
-      } else {
-        throw Exception(
-          'Failed to load messages: ${response.statusCode} ${response.reasonPhrase}',
-        );
-      }
-      _error = null; // Clear error on success
-    } catch (e, stackTrace) {
-      log('Error fetching messages for $conversationId: $e\n$stackTrace');
-      _error = 'Failed to load messages.';
-      // Optionally clear messages on error? Or keep stale data?
-      // _messagesMap.remove(conversationId);
-      // if (_activeConversationId == conversationId) _activeConversationMessages = [];
-    } finally {
-      _isLoadingMessages = false;
-      // Notify state change (data or error) only if it's the active conversation
-      if (_activeConversationId == conversationId) {
-        _safelyNotifyListeners();
-      }
-    }
   }
 
-  // Fetch all conversations for the user
   Future<void> fetchConversations({bool forceRefresh = false}) async {
     if (_isLoadingConversations && !forceRefresh) return;
 
@@ -1155,9 +1010,7 @@ class ChatServiceProvider with ChangeNotifier {
 
       final response = await http
           .get(
-            Uri.parse(
-              '$_socketUrl/api/conversations',
-            ), // Ensure API endpoint is correct
+            Uri.parse('$_socketUrl/api/conversations'),
             headers: {
               'Content-Type': 'application/json',
               'Authorization': 'Bearer $token',
@@ -1178,7 +1031,6 @@ class ChatServiceProvider with ChangeNotifier {
                         Conversation.fromJson(Map<String, dynamic>.from(json)),
                   )
                   .toList();
-          // Sort by last update time
           _conversations.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
           log("Fetched ${_conversations.length} conversations.");
         } else {
@@ -1195,20 +1047,15 @@ class ChatServiceProvider with ChangeNotifier {
     } catch (e, stackTrace) {
       log('Error fetching conversations: $e\n$stackTrace');
       _error = 'Failed to load conversations.';
-      // Optionally clear conversations on error?
-      // _conversations = [];
     } finally {
       _isLoadingConversations = false;
       _safelyNotifyListeners();
     }
   }
 
-  // --- Utility / Other Public Methods ---
-
-  // Call this on logout or when user context changes
   void clearUserSession() {
     log("Clearing user session data in ChatServiceProvider.");
-    disconnect(); // Disconnect socket
+    disconnect();
     _currentUserId = null;
     _activeConversationId = null;
     _messagesMap.clear();
@@ -1221,30 +1068,21 @@ class ChatServiceProvider with ChangeNotifier {
     _reconnectionTimer?.cancel();
     _typingTimers.values.forEach((timer) => timer.cancel());
     _typingTimers.clear();
-    // Notify listeners to reflect the cleared state in UI
     _safelyNotifyListeners();
   }
 
-  // Method to manually set user ID if not using SharedPreferences loading
-  // Be careful with using this if `initialize` is also used.
   void setCurrentUserId(String userId) {
     if (_currentUserId != userId) {
       _currentUserId = userId;
       log("Current User ID manually set to: $userId");
-      // Potentially trigger connect or fetch data if needed
-      // connect();
-      // fetchConversations();
       _safelyNotifyListeners();
     }
   }
 
-  // --- Cleanup ---
   @override
   void dispose() {
     log('Disposing ChatServiceProvider.');
-    disconnect(
-      notify: false,
-    ); // Disconnect without notifying listeners during disposal
+    disconnect(notify: false);
     _reconnectionTimer?.cancel();
     _typingTimers.values.forEach((timer) => timer.cancel());
     super.dispose();

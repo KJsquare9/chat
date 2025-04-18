@@ -7,6 +7,7 @@ import 'package:logger/logger.dart';
 import 'package:provider/provider.dart';
 import 'dart:async';
 import '../providers/chat_service_provider.dart';
+import '../services/api_service.dart'; // Add this import for ApiService
 
 // Chat messages data model
 class Message {
@@ -44,11 +45,13 @@ class Message {
 class ChatScreen extends StatefulWidget {
   final String conversationId;
   final String receiverId;
+  final String receiverName;
 
   const ChatScreen({
     super.key,
     required this.conversationId,
     required this.receiverId,
+    required this.receiverName,
   });
 
   @override
@@ -68,9 +71,72 @@ class ChatScreenState extends State<ChatScreen> {
 
     // Set the active conversation in the ChatServiceProvider
     final provider = Provider.of<ChatServiceProvider>(context, listen: false);
-    provider.setActiveChat(widget.conversationId, widget.receiverId);
+
+    // Ensure we have a valid user before setting active chat
+    _ensureValidUserAndInitialize();
 
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+  }
+
+  Future<void> _ensureValidUserAndInitialize() async {
+    try {
+      final apiService = ApiService(); // Create an instance of ApiService
+      final isLoggedIn = await apiService.isLoggedIn();
+
+      if (!isLoggedIn) {
+        logger.e('User not logged in when trying to initialize chat screen');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Please log in to access chat')),
+          );
+          Navigator.of(context).pop();
+        }
+        return;
+      }
+
+      // Ensure we have current user ID
+      await Provider.of<ChatServiceProvider>(
+        context,
+        listen: false,
+      ).loadCurrentUserId();
+
+      // Now set active chat
+      final provider = Provider.of<ChatServiceProvider>(context, listen: false);
+      provider.setActiveChat(widget.conversationId, widget.receiverId);
+
+      // Also manually fetch messages if needed
+      _fetchMessagesViaApiService();
+    } catch (e) {
+      logger.e('Error initializing chat: $e');
+    }
+  }
+
+  Future<void> _fetchMessagesViaApiService() async {
+    try {
+      // Use ApiService as a backup if ChatServiceProvider isn't working
+      final apiService = ApiService(); // Create an instance of ApiService
+      final messages = await apiService.fetchConversationMessages(
+        widget.conversationId,
+      );
+
+      // Log the fetched messages for debugging
+      logger.d('Fetched ${messages.length} messages via ApiService');
+
+      // Re-trigger the ChatServiceProvider to fetch messages after a short delay
+      if (mounted) {
+        Future.delayed(const Duration(seconds: 1), () {
+          final provider = Provider.of<ChatServiceProvider>(
+            context,
+            listen: false,
+          );
+          if (provider.activeMessages.isEmpty) {
+            provider.fetchMessages(widget.conversationId, forceRefresh: true);
+          }
+        });
+      }
+    } catch (e) {
+      logger.e('Error fetching messages via API service: $e');
+    }
   }
 
   void _scrollToBottom() {
@@ -111,9 +177,35 @@ class ChatScreenState extends State<ChatScreen> {
     _typingTimer?.cancel();
     provider.sendStopTypingEvent(widget.receiverId);
 
-    // Send the message via the provider
-    provider.sendMessage(widget.receiverId, text);
+    // Clear the text input field
+    final messageText = _messageController.text;
+    _messageController.clear();
+
+    // Send the message via the provider (WebSocket)
+    provider.sendMessage(widget.receiverId, messageText);
+
+    // Also persist the message in the database using API service
+    _persistMessageToDatabase(messageText);
+
     _scrollToBottom();
+  }
+
+  // New method to persist messages to the database
+  Future<void> _persistMessageToDatabase(String text) async {
+    try {
+      final apiService = ApiService();
+      final result = await apiService.sendMessage(
+        conversationId: widget.conversationId,
+        receiverId: widget.receiverId,
+        text: text,
+      );
+
+      if (!result) {
+        logger.e('Failed to persist message to database');
+      }
+    } catch (e) {
+      logger.e('Error persisting message to database: $e');
+    }
   }
 
   Future<void> _pickFile() async {
@@ -149,7 +241,7 @@ class ChatScreenState extends State<ChatScreen> {
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Text(
-                  widget.receiverId,
+                  widget.receiverName,
                   style: const TextStyle(color: Colors.white),
                 ),
                 if (isTyping)

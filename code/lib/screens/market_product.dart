@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import '../services/api_service.dart'; // Import your API service
-import '../screens/chat_screen.dart'; // Import the ChatScreen
+import '../screens/chat.dart'; // Import chat.dart instead of chat_screen.dart
 
 class ProductDetailsPage extends StatefulWidget {
   final Map<String, dynamic> product;
@@ -364,58 +364,54 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> {
             (dialogContext) => const Center(child: CircularProgressIndicator()),
       );
 
-      final productId = widget.product['_id'];
+      final sellerId = widget.product['seller_id'];
+      final sellerName = widget.product['seller_name'] ?? 'Seller';
 
-      // Now perform the async operation
-      if (productId == null) {
+      if (sellerId == null) {
         navigator.pop(); // Dismiss loading dialog
-        _showErrorSnackbar(scaffoldMessenger, "Product ID is missing");
+        _showErrorSnackbar(
+          scaffoldMessenger,
+          "Seller information not available",
+        );
         return;
       }
 
-      // Call the API to find or create a conversation with the seller
-      final response = await apiService.findOrCreateSellerConversation(
-        productId,
-      );
+      // Use the new method to create or get conversation
+      final result = await apiService.getOrCreateConversation(sellerId);
 
-      // Check if still mounted after the async operation
       if (!mounted) return;
 
-      // Dismiss loading dialog
+      // Dismiss loading indicator
       navigator.pop();
 
-      if (response['success'] == true && response['conversation'] != null) {
-        final conversation = response['conversation'];
+      if (result['success'] == true && result['conversation'] != null) {
+        final conversation = result['conversation'];
+        final conversationId = conversation['_id'];
 
-        // Navigate to the chat screen with the conversation data
+        // Navigate to chat screen with correct parameters
         navigator.push(
           MaterialPageRoute(
             builder:
-                (routeContext) => ChatScreen(
-                  conversationId: conversation['_id'],
-                  receiverId: conversation['sellerId'],
-                  receiverName:
-                      conversation['sellerName'] ??
-                      widget.product['seller_name'] ??
-                      'Seller',
+                (context) => ChatScreen(
+                  conversationId: conversationId,
+                  receiverId: sellerId,
+                  receiverName: sellerName,
                 ),
           ),
         );
       } else {
         _showErrorSnackbar(
           scaffoldMessenger,
-          response['message'] ?? "Failed to start conversation",
+          "Failed to start conversation with seller. Please try again.",
         );
       }
     } catch (e) {
-      // Check if still mounted before attempting to pop or show error
-      if (mounted) {
-        // Check if we can pop (if dialog is showing)
-        if (navigator.canPop()) {
-          navigator.pop();
-        }
-        _showErrorSnackbar(scaffoldMessenger, "Error: ${e.toString()}");
-      }
+      if (!mounted) return;
+
+      // Dismiss loading indicator if it's showing
+      navigator.pop();
+
+      _showErrorSnackbar(scaffoldMessenger, "Error: ${e.toString()}");
     }
   }
 

@@ -1,8 +1,8 @@
 // chat_list.dart
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart'; // For date formatting
-import 'dart:convert'; // For JSON decoding
-import 'package:http/http.dart' as http; // For API calls
+// import 'dart:convert'; // For JSON decoding
+// import 'package:http/http.dart' as http; // For API calls
 import '../services/api_service.dart'; // Import API service for token management
 import 'chat.dart'; // Import the chat page
 import '../widgets/custom_navbar.dart'; // Import the bottom navbar
@@ -134,6 +134,9 @@ class ChatListPageState extends State<ChatListPage> {
                                   receiverId:
                                       contact
                                           .name, // Replace with actual receiver ID
+                                  receiverName:
+                                      contact
+                                          .name, // Add the required receiverName parameter
                                 ),
                           ),
                         );

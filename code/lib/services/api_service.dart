@@ -9,6 +9,7 @@ import 'package:sendotp_flutter_sdk/sendotp_flutter_sdk.dart';
 import 'package:logger/logger.dart';
 import '../models/article.dart'; // Import the Article model
 import 'package:firebase_messaging/firebase_messaging.dart'; // Add this import
+import 'package:flutter/foundation.dart'; // For debugPrint
 
 class ApiService {
   final String baseUrl = 'http://10.0.2.2:5000';
@@ -827,6 +828,134 @@ class ApiService {
     }
   }
 
+  // Updated fetchConversationMessages method with better error handling
+  Future<List<Map<String, dynamic>>> fetchConversationMessagesWithLogging(
+    String conversationId,
+  ) async {
+    try {
+      String? token = await getToken();
+      if (token == null) throw Exception('User not logged in');
+
+      // Ensure we have a valid user ID
+      String? userId = await getSellerId();
+      if (userId == null || userId.isEmpty) {
+        throw Exception('User ID not available');
+      }
+
+      logger.d(
+        'Fetching messages for conversation: $conversationId with userId: $userId',
+      );
+
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/conversations/$conversationId/messages'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['success'] == true && data['messages'] != null) {
+          logger.i('Successfully fetched ${data['messages'].length} messages');
+          return List<Map<String, dynamic>>.from(data['messages']);
+        } else {
+          logger.w('No messages found or invalid response format');
+          return [];
+        }
+      } else {
+        logger.e(
+          'Failed to fetch messages: ${response.statusCode} ${response.body}',
+        );
+        throw Exception('Failed to fetch messages: ${response.statusCode}');
+      }
+    } catch (e) {
+      logger.e('Error fetching conversation messages: $e');
+      throw Exception('Error fetching conversation messages: $e');
+    }
+  }
+
+  // Fetch messages for a specific conversation using direct API call
+  Future<List<Map<String, dynamic>>> fetchConversationMessages(
+    String conversationId,
+  ) async {
+    try {
+      String? token = await getToken();
+      if (token == null) throw Exception('User not logged in');
+
+      // Ensure we have a valid user ID
+      String? userId = await getSellerId();
+      if (userId == null || userId.isEmpty) {
+        throw Exception('User ID not available');
+      }
+
+      logger.d(
+        'Fetching messages for conversation: $conversationId with userId: $userId',
+      );
+
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/conversations/$conversationId/messages'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['success'] == true && data['messages'] != null) {
+          return List<Map<String, dynamic>>.from(data['messages']);
+        } else {
+          return [];
+        }
+      } else {
+        logger.e(
+          'Failed to fetch messages: ${response.statusCode} ${response.body}',
+        );
+        throw Exception('Failed to fetch messages: ${response.statusCode}');
+      }
+    } catch (e) {
+      logger.e('Error fetching conversation messages: $e');
+      throw Exception('Error fetching conversation messages');
+    }
+  }
+
+  // Create a conversation with a seller when contacting from product page
+  Future<Map<String, dynamic>> getOrCreateConversation(String sellerId) async {
+    try {
+      String? token = await getToken();
+      if (token == null) throw Exception('User not logged in');
+
+      String? currentUserId = await getSellerId();
+      if (currentUserId == null)
+        throw Exception('Failed to get current user ID');
+
+      logger.d('Creating conversation between $currentUserId and $sellerId');
+
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/conversations'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({'participantId': sellerId}),
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return jsonDecode(response.body);
+      } else {
+        logger.e(
+          'Failed to create conversation: ${response.statusCode} ${response.body}',
+        );
+        throw Exception('Failed to create conversation');
+      }
+    } catch (e) {
+      logger.e('Error creating conversation: $e');
+      throw Exception('Error creating conversation');
+    }
+  }
+
+  // Updated sendMessage method with better error handling and logging
   Future<bool> sendMessage({
     required String conversationId,
     required String receiverId,
@@ -837,6 +966,10 @@ class ApiService {
     try {
       String? token = await getToken();
       if (token == null) throw Exception('User not logged in');
+
+      logger.d(
+        'Sending message to $receiverId in conversation $conversationId',
+      );
 
       final response = await http.post(
         Uri.parse('$baseUrl/api/messages'),
@@ -854,76 +987,17 @@ class ApiService {
       );
 
       if (response.statusCode == 201) {
+        logger.i('Message sent successfully via API');
         return true;
       } else {
-        logger.e('Failed to send message: ${response.statusCode}');
+        logger.e(
+          'Failed to send message: ${response.statusCode} ${response.body}',
+        );
         return false;
       }
     } catch (e) {
       logger.e('Error sending message: $e');
       return false;
-    }
-  }
-
-  /// Find or create a conversation with a product seller
-  Future<Map<String, dynamic>> findOrCreateSellerConversation(
-    String productId,
-  ) async {
-    try {
-      final token = await getToken();
-      if (token == null) {
-        return {'success': false, 'message': 'User not logged in'};
-      }
-
-      // Adding debugging information
-      print('Making API call to create seller conversation...');
-      final response = await http.post(
-        Uri.parse('$baseUrl/api/product-seller/$productId/conversation'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
-      print('Response status: ${response.statusCode}');
-
-      final responseData = json.decode(response.body);
-
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        return responseData;
-      } else {
-        throw Exception(
-          responseData['message'] ?? 'Failed to create conversation',
-        );
-      }
-    } catch (e) {
-      print('Error in findOrCreateSellerConversation: $e');
-      return {'success': false, 'message': e.toString()};
-    }
-  }
-
-  Future<List<Map<String, dynamic>>> fetchConversations() async {
-    try {
-      String? token = await getToken(); // Retrieve the token
-      if (token == null) throw Exception('User not logged in');
-
-      final response = await http.get(
-        Uri.parse('$baseUrl/api/conversations'),
-        headers: {
-          'Authorization': 'Bearer $token', // Include the token in the header
-          'Content-Type': 'application/json',
-        },
-      );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        return List<Map<String, dynamic>>.from(data['conversations']);
-      } else {
-        throw Exception(
-          'Failed to fetch conversations: ${response.statusCode}',
-        );
-      }
-    } catch (e) {
-      throw Exception('Error fetching conversations: $e');
     }
   }
 
