@@ -284,7 +284,7 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> {
                 width: double.infinity,
                 child: ElevatedButton(
                   onPressed: () {
-                    _contactSeller(context);
+                    _contactSeller();
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.deepOrange,
@@ -326,46 +326,30 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> {
     );
   }
 
-  Future<void> _contactSeller(BuildContext context) async {
-    // Store BuildContext-dependent objects before async operations
+  Future<void> _contactSeller() async {
+    // Get access to navigation and messaging services
     final navigator = Navigator.of(context);
     final scaffoldMessenger = ScaffoldMessenger.of(context);
 
     try {
-      // First check if user is logged in
-      final apiService = ApiService();
-      final isLoggedIn = await apiService.isLoggedIn();
-
-      if (!mounted) return;
-
-      if (!isLoggedIn) {
-        _showErrorSnackbar(
-          scaffoldMessenger,
-          "Please log in to contact the seller",
-        );
-        return;
-      }
-
-      // Verify we have a valid token before proceeding
-      final token = await apiService.getToken();
-      if (token == null) {
-        _showErrorSnackbar(
-          scaffoldMessenger,
-          "Authentication token not found. Please log in again.",
-        );
-        return;
-      }
-
-      // Show loading indicator before any async operation
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder:
-            (dialogContext) => const Center(child: CircularProgressIndicator()),
+      // Show loading indicator
+      navigator.push(
+        PageRouteBuilder(
+          opaque: false,
+          pageBuilder:
+              (_, __, ___) => const Center(
+                child: CircularProgressIndicator(color: Color(0xFFFF5002)),
+              ),
+        ),
       );
 
-      final sellerId = widget.product['seller_id'];
-      final sellerName = widget.product['seller_name'] ?? 'Seller';
+      final apiService = ApiService();
+
+      // Get seller ID from the product data
+      final String? sellerId = widget.product['seller_id'];
+      final String productId =
+          widget.product['_id']; // Get the actual product ID
+      final String productName = widget.product['name'] ?? 'the product';
 
       if (sellerId == null) {
         navigator.pop(); // Dismiss loading dialog
@@ -376,17 +360,32 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> {
         return;
       }
 
-      // Use the new method to create or get conversation
-      final result = await apiService.getOrCreateConversation(sellerId);
+      // Get current user's profile to include name in message
+      final userProfile = await apiService.getUserProfile();
+      final userName = userProfile['Name'] ?? 'A user';
+
+      // Use the new method to create or get conversation with the actual product ID
+      final result = await apiService.getOrCreateConversation(
+        sellerId,
+        productId: productId,
+      );
 
       if (!mounted) return;
-
-      // Dismiss loading indicator
-      navigator.pop();
 
       if (result['success'] == true && result['conversation'] != null) {
         final conversation = result['conversation'];
         final conversationId = conversation['_id'];
+
+        // Send introductory message about product interest
+        final introMessage = "$userName is interested in product $productName";
+        await apiService.sendMessage(
+          conversationId: conversationId,
+          receiverId: sellerId,
+          text: introMessage,
+        );
+
+        // Dismiss loading indicator
+        navigator.pop();
 
         // Navigate to chat screen with correct parameters
         navigator.push(
@@ -395,11 +394,12 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> {
                 (context) => ChatScreen(
                   conversationId: conversationId,
                   receiverId: sellerId,
-                  receiverName: sellerName,
+                  receiverName: conversation['sellerName'] ?? 'Seller',
                 ),
           ),
         );
       } else {
+        navigator.pop(); // Dismiss loading dialog
         _showErrorSnackbar(
           scaffoldMessenger,
           "Failed to start conversation with seller. Please try again.",
@@ -415,7 +415,6 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> {
     }
   }
 
-  // Updated to take ScaffoldMessengerState instead of BuildContext
   void _showErrorSnackbar(
     ScaffoldMessengerState scaffoldMessenger,
     String message,

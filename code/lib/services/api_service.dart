@@ -920,28 +920,40 @@ class ApiService {
     }
   }
 
-  // Create a conversation with a seller when contacting from product page
-  Future<Map<String, dynamic>> getOrCreateConversation(String sellerId) async {
+  // Create a conversation with a seller for a specific product
+  Future<Map<String, dynamic>> getOrCreateConversation(
+    String sellerId, {
+    String? productId,
+  }) async {
     try {
       String? token = await getToken();
       if (token == null) throw Exception('User not logged in');
 
       String? currentUserId = await getSellerId();
-      if (currentUserId == null)
+      if (currentUserId == null) {
         throw Exception('Failed to get current user ID');
+      }
 
-      logger.d('Creating conversation between $currentUserId and $sellerId');
+      // Use the appropriate product ID or create a direct conversation if none provided
+      final String effectiveProductId = productId ?? 'direct';
+      logger.d(
+        'Creating conversation with seller: $sellerId for product: $effectiveProductId',
+      );
 
+      // Use the proper product-seller endpoint with the actual product ID
       final response = await http.post(
-        Uri.parse('$baseUrl/api/conversations'),
+        Uri.parse(
+          '$baseUrl/api/product-seller/$effectiveProductId/conversation',
+        ),
         headers: {
           'Authorization': 'Bearer $token',
           'Content-Type': 'application/json',
         },
-        body: jsonEncode({'participantId': sellerId}),
+        body: jsonEncode({'sellerId': sellerId}),
       );
 
       if (response.statusCode == 200 || response.statusCode == 201) {
+        logger.i('Successfully created or found conversation');
         return jsonDecode(response.body);
       } else {
         logger.e(
@@ -968,7 +980,7 @@ class ApiService {
       if (token == null) throw Exception('User not logged in');
 
       logger.d(
-        'Sending message to $receiverId in conversation $conversationId',
+        'Sending message to $receiverId in conversation $conversationId: "$text"',
       );
 
       final response = await http.post(
@@ -1001,15 +1013,50 @@ class ApiService {
     }
   }
 
-  // Helper method to get the auth token
-  Future<String> _getAuthToken() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString(
-      'token',
-    ); // Changed from 'auth_token' to 'token'
-    if (token == null) {
-      throw Exception('Authentication token not found');
+  // Fetch all conversations for the current user
+  Future<List<Map<String, dynamic>>> fetchConversations() async {
+    try {
+      String? token = await getToken();
+      if (token == null) throw Exception('User not logged in');
+
+      // Ensure we have a valid user ID
+      String? userId = await getSellerId();
+      if (userId == null || userId.isEmpty) {
+        throw Exception('User ID not available');
+      }
+
+      logger.d('Fetching conversations for user: $userId');
+
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/conversations'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['success'] == true && data['conversations'] != null) {
+          logger.i(
+            'Successfully fetched ${data['conversations'].length} conversations',
+          );
+          return List<Map<String, dynamic>>.from(data['conversations']);
+        } else {
+          logger.w('No conversations found or invalid response format');
+          return [];
+        }
+      } else {
+        logger.e(
+          'Failed to fetch conversations: ${response.statusCode} ${response.body}',
+        );
+        throw Exception(
+          'Failed to fetch conversations: ${response.statusCode}',
+        );
+      }
+    } catch (e) {
+      logger.e('Error fetching conversations: $e');
+      throw Exception('Error fetching conversations: $e');
     }
-    return token;
   }
 }

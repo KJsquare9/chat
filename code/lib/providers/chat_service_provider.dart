@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:developer';
-import 'package:flutter/foundation.dart';
+// import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart'; // Changed from material.dart to foundation.dart initially, but Material needed for WidgetsBinding
 import 'package:flutter/scheduler.dart'; // Added for SchedulerPhase
 import 'package:socket_io_client/socket_io_client.dart' as IO;

@@ -19,12 +19,16 @@ class ChatContact {
   final String lastMessage;
   final DateTime lastMessageTime;
   final bool unread;
+  final String conversationId; // Add this field
+  final String otherUserId; // Add this field
 
   ChatContact({
     required this.name,
     required this.lastMessage,
     required this.lastMessageTime,
     required this.unread,
+    required this.conversationId, // Add this parameter
+    required this.otherUserId, // Add this parameter
   });
 }
 
@@ -48,13 +52,18 @@ class ChatListPageState extends State<ChatListPage> {
         contacts =
             conversations.map((conversation) {
               final lastMessage = conversation['lastMessage'];
+              final otherParticipant = conversation['participants'][0];
               return ChatContact(
-                name: conversation['participants'][0]['full_name'] ?? 'Unknown',
+                name: otherParticipant['full_name'] ?? 'Unknown',
                 lastMessage: lastMessage?['text'] ?? 'No messages yet',
                 lastMessageTime: DateTime.parse(
                   lastMessage?['timestamp'] ?? DateTime.now().toIso8601String(),
                 ),
                 unread: lastMessage?['status'] != 'read',
+                conversationId:
+                    conversation['_id'], // Add this to store the actual conversation ID
+                otherUserId:
+                    otherParticipant['_id'], // Add this to store the other user's ID
               );
             }).toList();
       });
@@ -130,13 +139,13 @@ class ChatListPageState extends State<ChatListPage> {
                                 (context) => ChatScreen(
                                   conversationId:
                                       contact
-                                          .name, // Replace with actual conversation ID
+                                          .conversationId, // Use the actual conversation ID
                                   receiverId:
                                       contact
-                                          .name, // Replace with actual receiver ID
+                                          .otherUserId, // Use the actual receiver ID
                                   receiverName:
                                       contact
-                                          .name, // Add the required receiverName parameter
+                                          .name, // Keep using name for display only
                                 ),
                           ),
                         );

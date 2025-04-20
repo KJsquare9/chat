@@ -187,7 +187,7 @@ const getUserConversations = async (req, res) => {
         // Filter out conversations where the 'participants' array might be empty after the populate match
         // (This shouldn't happen in 1-on-1 chats if data integrity is maintained, but good practice)
         const validConversations = conversations.filter(convo => convo.participants.length > 0);
-        console.log(`Valid conversations after filtering: ${validConversations.length}`); // Debug log
+        // console.log(`Valid conversations after filtering: ${validConversations.length}`); // Debug log
 
         res.status(200).json({ success: true, conversations: validConversations });
 
@@ -219,8 +219,20 @@ const getMessages = async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
+    // Improved validation with better error messages
+    if (!conversationId) {
+        console.error(`Invalid request: Missing conversationId parameter`);
+        return res.status(400).json({ success: false, message: "Conversation ID is required" });
+    }
+
     if (!mongoose.Types.ObjectId.isValid(conversationId)) {
-        return res.status(400).json({ success: false, message: "Invalid Conversation ID" });
+        console.error(`Invalid conversationId format: "${conversationId}" is not a valid ObjectId`);
+        return res.status(400).json({ 
+            success: false, 
+            message: "Invalid Conversation ID format. Expected a valid ObjectId.",
+            error: "INVALID_ID_FORMAT",
+            providedId: conversationId
+        });
     }
 
     try {
@@ -243,84 +255,155 @@ const getMessages = async (req, res) => {
 
         res.status(200).json({ success: true, messages });
     } catch (error) {
-        console.error("Error fetching messages:", error);
+        console.error(`Error fetching messages for conversation ${conversationId}:`, error);
         res.status(500).json({ success: false, message: "Server Error" });
     }
 };
 
 /**
  * @description Find or create a conversation with a product seller
- * @route POST /api/chat/product-seller/:productId/conversation
+ * @route POST /api/product-seller/:productId/conversation
  * @access Private (Requires Auth)
  */
 const findOrCreateSellerConversation = async (req, res) => {
     const { productId } = req.params;
     const buyerId = req.user.id;
+    const { sellerId } = req.body;
 
-    if (!mongoose.Types.ObjectId.isValid(productId)) {
-        return res.status(400).json({ success: false, message: "Invalid product ID" });
-    }
-
-    try {
-        // 1. Find the product to get the seller ID
-        const product = await Product.findById(productId).select('seller_id seller_name');
-        
-        if (!product) {
-            return res.status(404).json({ success: false, message: "Product not found" });
+    // For direct conversations without a product, use a special handling
+    if (productId === 'direct') {
+        if (!sellerId || !mongoose.Types.ObjectId.isValid(sellerId)) {
+            return res.status(400).json({ success: false, message: "Valid Seller ID is required" });
         }
 
-        const sellerId = product.seller_id;
-        
-        if (buyerId.toString() === sellerId.toString()) {
-            return res.status(400).json({ success: false, message: "You cannot start a conversation with yourself" });
-        }
+        try {
+            // Check if the seller exists
+            const seller = await User.findById(sellerId).select('full_name _id');
+            if (!seller) {
+                return res.status(404).json({ success: false, message: "Seller not found" });
+            }
 
-        // 2. Find existing conversation or create a new one
-        const participants = [buyerId, sellerId].sort();
-        let conversation = await Conversation.findOne({ participants: { $all: participants, $size: 2 } })
-            .populate({
-                path: 'participants',
-                match: { _id: { $ne: buyerId } }, // Get the other participant (seller)
-                select: 'full_name _id'
-            });
+            if (buyerId.toString() === sellerId.toString()) {
+                return res.status(400).json({ success: false, message: "You cannot start a conversation with yourself" });
+            }
 
-        if (!conversation) {
-            // Create a new conversation
-            conversation = new Conversation({ 
-                participants: participants,
-                updatedAt: new Date()
-            });
-            await conversation.save();
-            
-            // Re-fetch with populated fields
-            conversation = await Conversation.findById(conversation._id)
+            // Find or create conversation
+            const participants = [buyerId, sellerId].sort();
+            let conversation = await Conversation.findOne({ participants: { $all: participants, $size: 2 } })
                 .populate({
                     path: 'participants',
-                    match: { _id: { $ne: buyerId } },
+                    match: { _id: { $ne: buyerId } }, // Get the other participant (seller)
                     select: 'full_name _id'
                 });
-        }
 
-        // 3. Add the seller as a contact if they're not already
-        await User.findByIdAndUpdate(
-            buyerId, 
-            { $addToSet: { contacts: sellerId } }, 
-            { new: false }
-        );
-
-        // 4. Return the conversation data
-        const sellerInfo = conversation.participants[0];
-        
-        res.status(200).json({
-            success: true, 
-            conversation: {
-                _id: conversation._id,
-                sellerId: sellerInfo._id,
-                sellerName: sellerInfo.full_name || product.seller_name,
+            if (!conversation) {
+                conversation = new Conversation({ 
+                    participants: participants,
+                    updatedAt: new Date()
+                });
+                await conversation.save();
+                
+                conversation = await Conversation.findById(conversation._id)
+                    .populate({
+                        path: 'participants',
+                        match: { _id: { $ne: buyerId } },
+                        select: 'full_name _id'
+                    });
             }
-        });
-    } catch (error) {
-        handleError(res, error, "Error finding/creating conversation with seller");
+
+            // Add the seller to contacts
+            await User.findByIdAndUpdate(
+                buyerId, 
+                { $addToSet: { contacts: sellerId } }, 
+                { new: false }
+            );
+
+            const sellerInfo = conversation.participants[0];
+            
+            res.status(200).json({
+                success: true, 
+                conversation: {
+                    _id: conversation._id,
+                    sellerId: sellerInfo._id,
+                    sellerName: sellerInfo.full_name,
+                }
+            });
+        } catch (error) {
+            handleError(res, error, "Error finding/creating direct conversation");
+        }
+    } 
+    // Regular product-based conversation
+    else if (!mongoose.Types.ObjectId.isValid(productId)) {
+        return res.status(400).json({ success: false, message: "Invalid product ID" });
+    } else {
+        try {
+            // 1. Find the product to get the seller ID if not provided
+            const effectiveSellerId = sellerId;
+            let sellerName;
+
+            if (!effectiveSellerId || !mongoose.Types.ObjectId.isValid(effectiveSellerId)) {
+                const product = await Product.findById(productId).select('seller_id seller_name');
+                
+                if (!product) {
+                    return res.status(404).json({ success: false, message: "Product not found" });
+                }
+
+                effectiveSellerId = product.seller_id;
+                sellerName = product.seller_name;
+            }
+            
+            if (buyerId.toString() === effectiveSellerId.toString()) {
+                return res.status(400).json({ success: false, message: "You cannot start a conversation with yourself" });
+            }
+
+            // 2. Find existing conversation or create a new one
+            const participants = [buyerId, effectiveSellerId].sort();
+            let conversation = await Conversation.findOne({ participants: { $all: participants, $size: 2 } })
+                .populate({
+                    path: 'participants',
+                    match: { _id: { $ne: buyerId } }, // Get the other participant (seller)
+                    select: 'full_name _id'
+                });
+
+            if (!conversation) {
+                // Create a new conversation
+                conversation = new Conversation({ 
+                    participants: participants,
+                    updatedAt: new Date()
+                });
+                await conversation.save();
+                
+                // Re-fetch with populated fields
+                conversation = await Conversation.findById(conversation._id)
+                    .populate({
+                        path: 'participants',
+                        match: { _id: { $ne: buyerId } },
+                        select: 'full_name _id'
+                    });
+            }
+
+            // 3. Add the seller as a contact if they're not already
+            await User.findByIdAndUpdate(
+                buyerId, 
+                { $addToSet: { contacts: effectiveSellerId } }, 
+                { new: false }
+            );
+
+            // 4. Return the conversation data
+            const sellerInfo = conversation.participants[0];
+            
+            res.status(200).json({
+                success: true, 
+                conversation: {
+                    _id: conversation._id,
+                    sellerId: sellerInfo._id,
+                    sellerName: sellerInfo.full_name || sellerName,
+                    productId: productId
+                }
+            });
+        } catch (error) {
+            handleError(res, error, "Error finding/creating conversation with seller");
+        }
     }
 };
 
@@ -333,6 +416,8 @@ const sendMessage = async (req, res) => {
     const { conversationId } = req.params;
     const { receiverId, text, type = 'text', mediaUrl } = req.body;
     const senderId = req.user.id;
+    
+    console.log(`Sending message: ${JSON.stringify({ conversationId, receiverId, text, type, mediaUrl })}`);
     
     if (!mongoose.Types.ObjectId.isValid(conversationId)) {
         return res.status(400).json({ success: false, message: "Invalid Conversation ID" });
@@ -353,28 +438,36 @@ const sendMessage = async (req, res) => {
             return res.status(403).json({ success: false, message: "Access forbidden: You are not part of this conversation" });
         }
         
-        // Create new message
+        // Create new message with explicit fields to avoid any schema issues
         const newMessage = new Message({
-            conversationId,
-            senderId,
-            receiverId,
-            text,
+            conversationId: new mongoose.Types.ObjectId(conversationId),
+            senderId: new mongoose.Types.ObjectId(senderId),
+            receiverId: new mongoose.Types.ObjectId(receiverId),
+            text: type === 'text' ? text.trim() : null,
             type,
-            mediaUrl,
+            mediaUrl: ['image', 'video', 'file'].includes(type) ? mediaUrl : null,
             timestamp: new Date(),
-            status: 'sent' // Initial status
+            status: 'sent'
         });
         
-        await newMessage.save();
+        console.log("Saving new message:", newMessage);
+        
+        // Save with explicit error handling
+        const savedMessage = await newMessage.save();
+        console.log("Message saved successfully with ID:", savedMessage._id);
         
         // Update the conversation's lastMessage and updatedAt
-        await Conversation.findByIdAndUpdate(conversationId, {
-            lastMessage: newMessage._id,
-            updatedAt: new Date()
-        });
+        await Conversation.findByIdAndUpdate(
+            conversationId, 
+            {
+                lastMessage: savedMessage._id,
+                updatedAt: new Date()
+            },
+            { new: true }  // Return the updated document
+        );
         
-        // Populate the sender details in the response
-        const populatedMessage = await Message.findById(newMessage._id)
+        // Populate the sender details for the response
+        const populatedMessage = await Message.findById(savedMessage._id)
             .populate('senderId', 'full_name _id');
         
         res.status(201).json({ 
@@ -383,7 +476,114 @@ const sendMessage = async (req, res) => {
         });
         
     } catch (error) {
-        handleError(res, error, "Error sending message");
+        console.error("Error sending message:", error);
+        // More detailed error information
+        if (error.name === 'ValidationError') {
+            // Handle Mongoose validation errors specifically
+            const errors = {};
+            for (const field in error.errors) {
+                errors[field] = error.errors[field].message;
+            }
+            return res.status(400).json({ 
+                success: false, 
+                message: "Validation error", 
+                errors 
+            });
+        }
+        res.status(500).json({ success: false, message: "Error sending message: " + error.message });
+    }
+};
+
+/**
+ * @description Create a new message
+ * @route POST /api/messages
+ * @access Private (Requires Auth)
+ */
+const createMessage = async (req, res) => {
+    const { conversationId, receiverId, text, type = 'text', mediaUrl } = req.body;
+    const senderId = req.user.id;
+    
+    console.log(`Creating message: ${JSON.stringify({ conversationId, receiverId, text, type, mediaUrl })}`);
+    
+    if (!conversationId || !mongoose.Types.ObjectId.isValid(conversationId)) {
+        return res.status(400).json({ success: false, message: "Valid Conversation ID is required" });
+    }
+    
+    if (!receiverId || !mongoose.Types.ObjectId.isValid(receiverId)) {
+        return res.status(400).json({ success: false, message: "Valid Receiver ID is required" });
+    }
+    
+    if (type === 'text' && (!text || text.trim().length === 0)) {
+        return res.status(400).json({ success: false, message: "Message text is required" });
+    }
+
+    try {
+        // Verify the user is part of this conversation
+        const conversation = await Conversation.findOne({
+            _id: conversationId,
+            participants: senderId,
+        });
+
+        if (!conversation) {
+            return res.status(403).json({ 
+                success: false, 
+                message: "Access forbidden: You are not part of this conversation or conversation does not exist" 
+            });
+        }
+        
+        // Create new message with explicit fields to avoid any schema issues
+        const newMessage = new Message({
+            conversationId: new mongoose.Types.ObjectId(conversationId),
+            senderId: new mongoose.Types.ObjectId(senderId),
+            receiverId: new mongoose.Types.ObjectId(receiverId),
+            text: type === 'text' ? text.trim() : null,
+            type,
+            mediaUrl: ['image', 'video', 'file'].includes(type) ? mediaUrl : null,
+            timestamp: new Date(),
+            status: 'sent'
+        });
+        
+        console.log("Saving new message:", newMessage);
+        
+        // Save with explicit error handling
+        const savedMessage = await newMessage.save();
+        console.log("Message saved successfully with ID:", savedMessage._id);
+        
+        // Update the conversation's lastMessage and updatedAt
+        await Conversation.findByIdAndUpdate(
+            conversationId, 
+            {
+                lastMessage: savedMessage._id,
+                updatedAt: new Date()
+            },
+            { new: true }  // Return the updated document
+        );
+        
+        // Populate the sender details for the response
+        const populatedMessage = await Message.findById(savedMessage._id)
+            .populate('senderId', 'full_name _id');
+        
+        res.status(201).json({ 
+            success: true, 
+            message: populatedMessage 
+        });
+        
+    } catch (error) {
+        console.error("Error creating message:", error);
+        // More detailed error information
+        if (error.name === 'ValidationError') {
+            // Handle Mongoose validation errors specifically
+            const errors = {};
+            for (const field in error.errors) {
+                errors[field] = error.errors[field].message;
+            }
+            return res.status(400).json({ 
+                success: false, 
+                message: "Validation error", 
+                errors 
+            });
+        }
+        res.status(500).json({ success: false, message: "Error creating message: " + error.message });
     }
 };
 
@@ -395,5 +595,6 @@ export {
     getUserConversations,
     getMessages,
     findOrCreateSellerConversation,
-    sendMessage // Export the new function
+    sendMessage,
+    createMessage // Export the new method
 };

@@ -64,6 +64,11 @@ class ChatService extends ChangeNotifier {
         // Add to stream for UI updates - every subscriber will receive this
         _messageStreamController.add(message.data);
 
+        // Check if this is for the currently active conversation
+        if (conversationId == _currentConversationId) {
+          logger.i('New message is for the active conversation');
+        }
+
         // Emit the update with the conversation data
         notifyListeners();
       }

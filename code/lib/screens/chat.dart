@@ -184,28 +184,7 @@ class ChatScreenState extends State<ChatScreen> {
     // Send the message via the provider (WebSocket)
     provider.sendMessage(widget.receiverId, messageText);
 
-    // Also persist the message in the database using API service
-    _persistMessageToDatabase(messageText);
-
     _scrollToBottom();
-  }
-
-  // New method to persist messages to the database
-  Future<void> _persistMessageToDatabase(String text) async {
-    try {
-      final apiService = ApiService();
-      final result = await apiService.sendMessage(
-        conversationId: widget.conversationId,
-        receiverId: widget.receiverId,
-        text: text,
-      );
-
-      if (!result) {
-        logger.e('Failed to persist message to database');
-      }
-    } catch (e) {
-      logger.e('Error persisting message to database: $e');
-    }
   }
 
   Future<void> _pickFile() async {
@@ -219,7 +198,6 @@ class ChatScreenState extends State<ChatScreen> {
       if (result != null && result.files.isNotEmpty) {
         String fileName = result.files.first.name;
         logger.i('Picked file: $fileName');
-        // TODO: Implement file sending
       }
     } catch (e) {
       logger.e('Error picking file: $e', error: e);
@@ -269,36 +247,64 @@ class ChatScreenState extends State<ChatScreen> {
                   );
                 }
 
+                // Create a reversed list to display messages in chronological order
+                final chronologicalMessages = messages.reversed.toList();
+
                 return ListView.builder(
                   controller: _scrollController,
-                  itemCount: messages.length,
+                  itemCount: chronologicalMessages.length,
                   padding: const EdgeInsets.all(10),
                   itemBuilder: (context, index) {
-                    final message = messages[index];
-                    final isSender = message.senderId == provider.currentUserId;
+                    final message = chronologicalMessages[index];
+                    final currentUserId = provider.currentUserId.trim();
+
+                    // Extract senderId as string (handle both plain values and dynamic maps)
+                    String senderIdStr;
+                    if (message.senderId is Map) {
+                      // Properly extract the _id field from the Map
+                      senderIdStr =
+                          ((message.senderId as Map)['_id']?.toString() ?? '')
+                              .trim();
+                    } else if (message.senderId is String &&
+                        message.senderId.toString().contains('_id:')) {
+                      // Handle case where senderId is a string representation of a Map
+                      final idMatch = RegExp(
+                        r'_id:\s*([^,}]+)',
+                      ).firstMatch(message.senderId.toString());
+                      senderIdStr = (idMatch?.group(1)?.trim() ?? '').trim();
+                    } else {
+                      senderIdStr = message.senderId.toString().trim();
+                    }
+
+                    // Debug: Print IDs for troubleshooting
+                    // ignore: avoid_print
+                    print(
+                      'Message senderId: $senderIdStr | currentUserId: $currentUserId | isSender: ${senderIdStr == currentUserId}',
+                    );
 
                     return Padding(
                       padding: const EdgeInsets.symmetric(vertical: 2.0),
                       child: Column(
                         crossAxisAlignment:
-                            isSender
+                            senderIdStr == currentUserId
                                 ? CrossAxisAlignment.end
                                 : CrossAxisAlignment.start,
                         children: [
                           ChatBubble(
                             clipper: ChatBubbleClipper3(
                               type:
-                                  isSender
+                                  senderIdStr == currentUserId
                                       ? BubbleType.sendBubble
                                       : BubbleType.receiverBubble,
                             ),
                             alignment:
-                                isSender
+                                senderIdStr == currentUserId
                                     ? Alignment.topRight
                                     : Alignment.topLeft,
                             margin: const EdgeInsets.only(top: 2),
+                            // Color logic: Orange for sender, Grey for receiver
                             backGroundColor:
-                                isSender
+                                senderIdStr == currentUserId
                                     ? const Color(0xFFFF5002)
                                     : const Color.fromARGB(255, 112, 112, 112),
                             child: Container(
@@ -310,21 +316,22 @@ class ChatScreenState extends State<ChatScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.end,
                                 children: [
                                   Text(
-                                    message.text ?? '',
+                                    message.text,
                                     style: const TextStyle(color: Colors.white),
                                   ),
-                                  if (isSender) ...[
+                                  if (senderIdStr == currentUserId) ...[
                                     const SizedBox(height: 2),
                                     Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
                                         Icon(
-                                          _getStatusIcon(
-                                            message
-                                                .status!, // Ensure `message.status` is non-null
-                                          ),
+                                          _getStatusIcon(message.status),
                                           size: 12,
-                                          color: Colors.white70,
+                                          color:
+                                              message.status ==
+                                                      MessageStatus.read
+                                                  ? Colors.blue[100]
+                                                  : Colors.white70,
                                         ),
                                       ],
                                     ),
@@ -338,9 +345,7 @@ class ChatScreenState extends State<ChatScreen> {
                               horizontal: 8.0,
                             ),
                             child: Text(
-                              DateFormat(
-                                'yyyy-MM-dd HH:mm',
-                              ).format(message.timestamp),
+                              DateFormat('HH:mm').format(message.timestamp),
                               style: TextStyle(
                                 fontSize: 10,
                                 color: Colors.grey.shade600,

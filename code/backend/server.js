@@ -189,15 +189,17 @@ io.on('connection', (socket) => {
     });
 
     socket.on('sendMessage', async (data) => {
+        const { receiverId, text, type = 'text', mediaUrl = null, tempId = null } = data;
+        const senderId = socket.userId;
+
+        console.log(`Socket - Received sendMessage: ${JSON.stringify({ receiverId, tempId, type })}`);
+        
         if (!data || typeof data !== 'object') {
             return socket.emit('sendMessageError', { 
-                tempId: data?.tempId, 
+                tempId, 
                 error: 'Invalid data format.' 
             });
         }
-
-        const { receiverId, text, type = 'text', mediaUrl = null, tempId = null } = data;
-        const senderId = socket.userId;
 
         if (!receiverId || !mongoose.Types.ObjectId.isValid(receiverId)) {
             return socket.emit('sendMessageError', { 
@@ -228,45 +230,60 @@ io.on('connection', (socket) => {
         }
 
         try {
+            console.log(`Finding/creating conversation for: ${senderId} and ${receiverId}`);
             const participants = [senderId, receiverId].sort();
             let conversation = await Conversation.findOneAndUpdate(
-                { participants: participants }, { updatedAt: new Date() }, { new: true, upsert: true }
+                { participants: participants }, 
+                { updatedAt: new Date() }, 
+                { new: true, upsert: true }
             ).lean();
+            
+            console.log(`Using conversation ID: ${conversation._id}`);
 
             const newMessage = new Message({
-                conversationId: conversation._id, senderId, receiverId,
+                conversationId: mongoose.Types.ObjectId(conversation._id), 
+                senderId: mongoose.Types.ObjectId(senderId),
+                receiverId: mongoose.Types.ObjectId(receiverId),
                 text: type === 'text' ? text.trim() : null,
                 mediaUrl: ['image', 'video', 'file'].includes(type) ? mediaUrl : null,
-                type, timestamp: new Date(), status: 'sent'
+                type, 
+                timestamp: new Date(), 
+                status: 'sent'
             });
-            await newMessage.save();
+            
+            console.log(`Saving message to database: ${JSON.stringify(newMessage)}`);
+            const savedMessage = await newMessage.save();
+            console.log(`Message saved with ID: ${savedMessage._id}`);
 
-            Conversation.findByIdAndUpdate(conversation._id, { lastMessage: newMessage._id }).exec();
+            await Conversation.findByIdAndUpdate(
+                conversation._id, 
+                { lastMessage: savedMessage._id }
+            );
 
             const sender = await User.findById(senderId).select('full_name _id').lean();
             const messageToSend = {
-                _id: newMessage._id,
-                conversationId: newMessage.conversationId,
-                senderId: newMessage.senderId,
-                receiverId: newMessage.receiverId,
-                text: newMessage.text,
-                mediaUrl: newMessage.mediaUrl,
-                type: newMessage.type,
-                timestamp: newMessage.timestamp,
-                status: newMessage.status,
+                _id: savedMessage._id,
+                conversationId: savedMessage.conversationId,
+                senderId: savedMessage.senderId,
+                receiverId: savedMessage.receiverId,
+                text: savedMessage.text,
+                mediaUrl: savedMessage.mediaUrl,
+                type: savedMessage.type,
+                timestamp: savedMessage.timestamp,
+                status: savedMessage.status,
                 sender: sender ? { _id: sender._id, full_name: sender.full_name } : { _id: senderId },
             };
 
             const receiverSocketIds = userSockets.get(receiverId);
             if (receiverSocketIds && receiverSocketIds.size > 0) {
                 io.to(receiverId).emit('receiveMessage', messageToSend);
-                console.log(`Emitted message ${newMessage._id} to online user ${receiverId}`);
+                console.log(`Emitted message ${savedMessage._id} to online user ${receiverId}`);
             } else {
-                console.log(`User ${receiverId} offline. Sending push for message ${newMessage._id}.`);
+                console.log(`User ${receiverId} offline. Sending push for message ${savedMessage._id}.`);
                 await sendPushNotification(
                     receiverId,
                     senderId,
-                    newMessage.type === 'text' ? newMessage.text : `Sent you a ${newMessage.type}`,
+                    savedMessage.type === 'text' ? savedMessage.text : `Sent you a ${savedMessage.type}`,
                     conversation._id
                 );
             }
@@ -274,7 +291,7 @@ io.on('connection', (socket) => {
             socket.emit('messageSent', { tempId: tempId, message: messageToSend });
 
         } catch (error) {
-            console.error(`Error handling sendMessage from ${senderId} to ${receiverId}:`, error);
+            console.error(`Error handling sendMessage:`, error);
             socket.emit('sendMessageError', { 
                 tempId, 
                 error: 'Server failed to send message.' 
